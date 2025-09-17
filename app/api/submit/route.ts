@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 
     const response = await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'シート1!A1',
+      range: 'フォーム入力',
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [newRow],
