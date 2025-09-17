@@ -100,36 +100,56 @@ export default function Home() {
       } else {
         throw new Error(result.error || '送信に失敗しました。');
       }
-    } catch (error: any) {
-      setSubmitMessage(`❌エラーが発生しました: ${error.message}`);
+    } catch (error) { // ← (error: any) から (error) へ変更
+      // エラーがErrorインスタンスか確認してからメッセージを取得する
+      if (error instanceof Error) {
+        setSubmitMessage(`❌エラーが発生しました: ${error.message}`);
+      } else {
+        setSubmitMessage(`❌予期せぬエラーが発生しました。`);
+      }
     } finally {
       setIsSubmitting(false); // 送信中フラグを解除
     }
   };
 
   // ========== ここから下が画面の見た目 (JSX) ==========
+  // app/page.tsx の return 部分の完成版
+
   return (
     <main className="container mx-auto p-8">
       <h1 className="text-3xl font-bold mb-6">美容院 顧客情報フォーム</h1>
 
-      {/* フォーム全体 */}
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* ----- 基本情報セクション ----- */}
         <div className="p-4 border rounded-lg">
           <h2 className="text-xl font-semibold mb-4">基本情報</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block mb-1 font-medium">顧客名</label>
               <input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required className="w-full p-2 border rounded" />
             </div>
             <div>
+              <label className="block mb-1 font-medium">施術者</label>
+              <input type="text" value={practitioner} onChange={(e) => setPractitioner(e.target.value)} required className="w-full p-2 border rounded" />
+            </div>
+            <div>
               <label className="block mb-1 font-medium">性別</label>
-              <div className="flex gap-4">
+              <div className="flex items-center gap-4 pt-2">
                 <label><input type="radio" value="男" checked={gender === '男'} onChange={(e) => setGender(e.target.value)} /> 男</label>
                 <label><input type="radio" value="女" checked={gender === '女'} onChange={(e) => setGender(e.target.value)} /> 女</label>
               </div>
             </div>
-            {/* ... 他の項目も同様に ... */}
+            <div>
+              <label className="block mb-1 font-medium">年齢層</label>
+              <select value={ageGroup} onChange={(e) => setAgeGroup(e.target.value)} className="w-full p-2 border rounded">
+                <option>10代</option>
+                <option>20代</option>
+                <option>30代</option>
+                <option>40代</option>
+                <option>50代</option>
+                <option>60代以上</option>
+              </select>
+            </div>
             <div>
               <label className="block mb-1 font-medium">お客様区分</label>
               <select value={customerType} onChange={(e) => setCustomerType(e.target.value)} className="w-full p-2 border rounded">
@@ -137,15 +157,25 @@ export default function Home() {
                 <option>再来店</option>
               </select>
             </div>
+            <div>
+              <label className="block mb-1 font-medium">来店回数</label>
+               <select value={visitCount} onChange={(e) => setVisitCount(e.target.value)} className="w-full p-2 border rounded">
+                <option>1回</option>
+                <option>2回</option>
+                <option>3回</option>
+                <option>4回</option>
+                <option>5回</option>
+                <option>6回以上</option>
+              </select>
+            </div>
           </div>
         </div>
 
         {/* ----- 新規のお客様専用セクション ----- */}
-        {/* customerTypeが'新規'の時だけ、この部分が表示される */}
         {customerType === '新規' && (
           <div className="p-4 border rounded-lg bg-blue-50">
             <h2 className="text-xl font-semibold mb-4">新規のお客様情報</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <div>
                  <label className="block mb-1 font-medium">郵便番号</label>
                  <input type="text" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} className="w-full p-2 border rounded" />
@@ -168,8 +198,8 @@ export default function Home() {
 
         {/* ----- 施術情報セクション ----- */}
         <div className="p-4 border rounded-lg">
-          <h2 className="text-xl font-semibold mb-4">施術情報</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <h2 className="text-xl font-semibold mb-4">施術・売上情報</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block mb-1 font-medium">合計施術時間 (分)</label>
               <input type="number" value={totalTime} onChange={(e) => setTotalTime(e.target.value)} required className="w-full p-2 border rounded" />
@@ -178,37 +208,44 @@ export default function Home() {
               <label className="block mb-1 font-medium">施術売上 (税込)</label>
               <input type="number" value={sales} onChange={(e) => setSales(e.target.value)} placeholder="時間から自動計算されます" required className="w-full p-2 border rounded bg-gray-100" />
             </div>
-            {/* ... 物販や回数券など他の項目も追加 ... */}
+             <div>
+              <label className="block mb-1 font-medium">ヘッドスパコース (分)</label>
+              <input type="text" value={headSpaCourse} onChange={(e) => setHeadSpaCourse(e.target.value)} className="w-full p-2 border rounded" />
+            </div>
             <div>
               <label className="block mb-1 font-medium">物販売上 (税込)</label>
               <input type="number" value={productSales} onChange={(e) => setProductSales(e.target.value)} className="w-full p-2 border rounded" />
             </div>
+            <div>
+              <label className="block mb-1 font-medium">回数券販売数</label>
+              <input type="number" value={ticketSales} onChange={(e) => setTicketSales(e.target.value)} className="w-full p-2 border rounded" />
+            </div>
           </div>
            <div className="mt-4">
              <label className="block mb-1 font-medium">オプション</label>
-             <div className="flex gap-4">
-                <label><input type="checkbox" value="首肩" checked={options.includes('首肩')} onChange={handleOptionChange} /> 首肩</label>
-                <label><input type="checkbox" value="ハンド" checked={options.includes('ハンド')} onChange={handleOptionChange} /> ハンド</label>
+             <div className="flex gap-4 pt-2">
+                <label className="flex items-center gap-2"><input type="checkbox" value="首肩" checked={options.includes('首肩')} onChange={handleOptionChange} /> 首肩</label>
+                <label className="flex items-center gap-2"><input type="checkbox" value="ハンド" checked={options.includes('ハンド')} onChange={handleOptionChange} /> ハンド</label>
              </div>
            </div>
-           <div className="mt-4">
-             <label className="flex items-center gap-2">
-               <input type="checkbox" checked={nextReservation} onChange={(e) => setNextReservation(e.target.checked)} />
+           <div className="mt-6">
+             <label className="flex items-center gap-2 text-lg">
+               <input type="checkbox" checked={nextReservation} onChange={(e) => setNextReservation(e.target.checked)} className="w-5 h-5" />
                次回予約あり
              </label>
            </div>
         </div>
 
         {/* ----- 送信ボタン ----- */}
-        <div className="text-center">
-          <button type="submit" disabled={isSubmitting} className="bg-blue-500 text-white px-8 py-3 rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
+        <div className="text-center pt-4">
+          <button type="submit" disabled={isSubmitting} className="bg-blue-500 text-white px-8 py-3 rounded-lg hover:bg-blue-600 disabled:bg-gray-400 text-lg font-bold">
             {isSubmitting ? '送信中...' : 'データを登録する'}
           </button>
         </div>
 
         {/* ----- 送信後のメッセージ表示エリア ----- */}
         {submitMessage && (
-          <p className="text-center text-lg mt-4">{submitMessage}</p>
+          <p className="text-center text-lg mt-4 p-4 rounded-lg bg-gray-100">{submitMessage}</p>
         )}
       </form>
     </main>
