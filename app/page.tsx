@@ -1,89 +1,189 @@
-// app/page.tsx
-
-// 'use client' は、このコンポーネントがブラウザ上で動くことを示すおまじないです。
-// useStateやuseEffectなどの機能（フック）を使うために必要です。
 'use client';
 
-// ReactからuseStateとuseEffectという機能をインポートします。
-// useState: フォームの入力内容などを一時的に記憶するために使います。
-// useEffect: 特定のタイミングで処理を実行するために使います。
-import { useState, useEffect, FormEvent } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
+
+const GENDERS = ['男', '女'];
+const AGE_GROUPS = ['10代', '20代', '30代', '40代', '50代', '60代以上'];
+const CUSTOMER_TYPES = ['新規', '再来店'];
+const VISIT_COUNTS_BY_TYPE: Record<(typeof CUSTOMER_TYPES)[number], string[]> = {
+  新規: ['1回'],
+  再来店: ['2回', '3回', '4回', '5回', '6回以上'],
+};
+const CHANNELS = ['インスタグラム', 'X', 'TikTok', 'Googleマップ', 'ホットペッパー', 'youtube', '紹介'];
+const OPTIONS = ['首肩', 'ハンド'];
+
+type ErrorState = Record<string, string>;
 
 export default function Home() {
-  // useStateを使って、各フォーム項目の状態（入力値）を管理します。
   const [customerName, setCustomerName] = useState('');
-  const [gender, setGender] = useState('男');
-  const [ageGroup, setAgeGroup] = useState('20代');
-  const [customerType, setCustomerType] = useState('新規'); // お客様区分（新規 or 再来店）
-  const [visitCount, setVisitCount] = useState('1回');
+  const [gender, setGender] = useState(GENDERS[0]);
+  const [ageGroup, setAgeGroup] = useState(AGE_GROUPS[1]);
+  const [customerType, setCustomerType] = useState(CUSTOMER_TYPES[0]);
+  const [visitCount, setVisitCount] = useState(VISIT_COUNTS_BY_TYPE['新規'][0]);
   const [postalCode, setPostalCode] = useState('');
-  const [channel, setChannel] = useState('インスタグラム'); // 経由
-  const [practitioner, setPractitioner] = useState(''); // 施術者
-  const [totalTime, setTotalTime] = useState(''); // 合計施術時間
+  const [channel, setChannel] = useState(CHANNELS[0]);
+  const [practitioner, setPractitioner] = useState('');
+  const [totalTime, setTotalTime] = useState('');
   const [headSpaCourse, setHeadSpaCourse] = useState('');
-  const [options, setOptions] = useState<string[]>([]); // オプションは複数選択可なので配列
-  const [sales, setSales] = useState(''); // 施術売上
-  const [productSales, setProductSales] = useState('0'); // 物販売上
-  const [ticketSales, setTicketSales] = useState('0'); // 回数券販売数
-  const [nextReservation, setNextReservation] = useState(false); // 次回予約の有無
-
-  // 送信中の状態を管理
+  const [options, setOptions] = useState<string[]>([]);
+  const [sales, setSales] = useState('');
+  const [productSales, setProductSales] = useState('0');
+  const [ticketSales, setTicketSales] = useState('0');
+  const [nextReservation, setNextReservation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // 送信後のメッセージを管理
   const [submitMessage, setSubmitMessage] = useState('');
+  const [errors, setErrors] = useState<ErrorState>({});
+  const visitCountOptions =
+    customerType === '新規'
+      ? VISIT_COUNTS_BY_TYPE['新規']
+      : VISIT_COUNTS_BY_TYPE['再来店'];
 
-  // ========== 売上自動計算のロジック ==========
-  // 合計施術時間(totalTime)が変更されたら、自動で施術売上を計算します。
-  useEffect(() => {
-    // totalTimeが数字でなければ何もしない
-    if (!totalTime || isNaN(Number(totalTime))) {
-      setSales(''); // 時間が未入力なら売上も空にする
-      return;
-    }
-    // ここで料金計算ロジックを実装します。例：10分あたり1000円
-    const calculatedSales = (Number(totalTime) / 10) * 1000;
-    setSales(String(calculatedSales));
-  }, [totalTime]); // totalTimeが変化した時だけこの中が実行される
-
-  // ========== オプションのチェックボックス処理 ==========
-  const handleOptionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { value, checked } = e.target;
-    if (checked) {
-      // チェックされたら、オプションの配列に追加
-      setOptions((prev) => [...prev, value]);
-    } else {
-      // チェックが外れたら、オプションの配列から削除
-      setOptions((prev) => prev.filter((option) => option !== value));
-    }
+  const clearError = (field: string) => {
+    setErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
   };
 
-  // ========== フォームが送信された時の処理 ==========
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault(); // フォーム送信時のデフォルトのページリロードを防ぐ
-    setIsSubmitting(true); // 送信中フラグを立てる
-    setSubmitMessage(''); // メッセージをリセット
+  const inputClass = (field: string) =>
+    `w-full px-4 py-3 text-base border rounded-xl bg-white shadow-sm transition focus:outline-none focus:ring-2 ${
+      errors[field]
+        ? 'border-rose-400 bg-rose-50 focus:ring-rose-300'
+        : 'border-slate-200 hover:border-blue-300 focus:ring-blue-300'
+    }`;
 
-    // スプレッドシートに書き込むデータを作成
+  const chipClass = (isSelected: boolean) =>
+    `flex items-center justify-center rounded-xl border px-4 py-3 text-base font-medium shadow-sm transition ${
+      isSelected
+        ? 'border-blue-400 bg-blue-100 text-blue-900'
+        : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300'
+    }`;
+
+  useEffect(() => {
+    if (!totalTime || isNaN(Number(totalTime))) {
+      setSales('');
+      return;
+    }
+
+    const minutes = Number(totalTime);
+    if (minutes <= 0) {
+      setSales('');
+      return;
+    }
+
+    const calculatedSales = (minutes / 10) * 1000;
+    setSales(String(Math.round(calculatedSales)));
+  }, [totalTime]);
+
+  useEffect(() => {
+    if (customerType === '新規') {
+      setVisitCount(VISIT_COUNTS_BY_TYPE['新規'][0]);
+      return;
+    }
+
+    setVisitCount((prev) => {
+      if (prev === '1回') {
+        return VISIT_COUNTS_BY_TYPE['再来店'][0];
+      }
+      return prev;
+    });
+  }, [customerType]);
+
+  const handleOptionChange = (value: string, checked: boolean) => {
+    setOptions((prev) => {
+      const next = checked ? [...prev, value] : prev.filter((option) => option !== value);
+      return next;
+    });
+    clearError('options');
+  };
+
+  const validateForm = (): ErrorState => {
+    const validationErrors: ErrorState = {};
+
+    if (!customerName.trim()) {
+      validationErrors.customerName = '顧客名は必須です。';
+    }
+
+    if (!practitioner.trim()) {
+      validationErrors.practitioner = '施術者は必須です。';
+    }
+
+    if (!ageGroup) {
+      validationErrors.ageGroup = '年齢層を選択してください。';
+    }
+
+    if (!visitCount) {
+      validationErrors.visitCount = '来店回数を選択してください。';
+    }
+
+    if (customerType === '新規') {
+      if (!postalCode.trim()) {
+        validationErrors.postalCode = '郵便番号を入力してください。';
+      } else if (!/^\d{7}$/.test(postalCode.trim())) {
+        validationErrors.postalCode = '郵便番号はハイフンなし7桁で入力してください。';
+      }
+
+      if (!channel.trim()) {
+        validationErrors.channel = '経由を選択してください。';
+      }
+    }
+
+    if (!totalTime.trim()) {
+      validationErrors.totalTime = '合計施術時間を入力してください。';
+    } else if (Number(totalTime) <= 0) {
+      validationErrors.totalTime = '1分以上で入力してください。';
+    }
+
+    if (!sales.trim()) {
+      validationErrors.sales = '施術売上を入力してください。';
+    }
+
+    if (productSales && isNaN(Number(productSales))) {
+      validationErrors.productSales = '数字のみ入力してください。';
+    }
+
+    if (ticketSales && isNaN(Number(ticketSales))) {
+      validationErrors.ticketSales = '数字のみ入力してください。';
+    }
+
+    return validationErrors;
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setSubmitMessage('');
+
+    const validationErrors = validateForm();
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      setSubmitMessage('❌ 入力内容を確認してください。');
+      return;
+    }
+
+    setErrors({});
+    setIsSubmitting(true);
+
     const formData = {
       customerName,
       gender,
       ageGroup,
       customerType,
       visitCount,
-      postalCode: customerType === '新規' ? postalCode : '', // 新規の場合のみ郵便番号をセット
-      channel: customerType === '新規' ? channel : '', // 新規の場合のみ経由をセット
+      postalCode: customerType === '新規' ? postalCode : '',
+      channel: customerType === '新規' ? channel : '',
       practitioner,
       totalTime,
-      headSpaCourse,
-      options: options.join(', '), // 配列をカンマ区切りの文字列に変換
-      sales: sales || '0', // 未入力なら0
+      headSpaCourse: headSpaCourse || '0',
+      options: options.join(', '),
+      sales: sales || '0',
       productSales: productSales || '0',
       ticketSales: ticketSales || '0',
       nextReservation: nextReservation ? '有' : '無',
     };
 
     try {
-      // これから作るAPIエンドポイントにデータを送信
       const response = await fetch('/api/submit', {
         method: 'POST',
         headers: {
@@ -96,158 +196,434 @@ export default function Home() {
 
       if (response.ok) {
         setSubmitMessage('✅ データが正常に送信されました！');
-        // ここでフォームをリセットする処理も追加できる
       } else {
         throw new Error(result.error || '送信に失敗しました。');
       }
-    } catch (error) { // ← (error: any) から (error) へ変更
-      // エラーがErrorインスタンスか確認してからメッセージを取得する
+    } catch (error) {
       if (error instanceof Error) {
         setSubmitMessage(`❌エラーが発生しました: ${error.message}`);
       } else {
-        setSubmitMessage(`❌予期せぬエラーが発生しました。`);
+        setSubmitMessage('❌予期せぬエラーが発生しました。');
       }
     } finally {
-      setIsSubmitting(false); // 送信中フラグを解除
+      setIsSubmitting(false);
     }
   };
 
-  // ========== ここから下が画面の見た目 (JSX) ==========
-  // app/page.tsx の return 部分の完成版
-
   return (
-    <main className="container mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-6">美容院 顧客情報フォーム</h1>
+    <main className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-emerald-50 text-slate-800">
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <h1 className="text-3xl font-bold text-slate-900">美容院 顧客情報フォーム</h1>
+        <p className="mt-3 text-base text-slate-600">
+          必須項目を入力し、確認のうえ「データを登録する」をタップしてください。
+        </p>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* ----- 基本情報セクション ----- */}
-        <div className="p-4 border rounded-lg">
-          <h2 className="text-xl font-semibold mb-4">基本情報</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block mb-1 font-medium">顧客名</label>
-              <input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required className="w-full p-2 border rounded" />
-            </div>
-            <div>
-              <label className="block mb-1 font-medium">施術者</label>
-              <input type="text" value={practitioner} onChange={(e) => setPractitioner(e.target.value)} required className="w-full p-2 border rounded" />
-            </div>
-            <div>
-              <label className="block mb-1 font-medium">性別</label>
-              <div className="flex items-center gap-4 pt-2">
-                <label><input type="radio" value="男" checked={gender === '男'} onChange={(e) => setGender(e.target.value)} /> 男</label>
-                <label><input type="radio" value="女" checked={gender === '女'} onChange={(e) => setGender(e.target.value)} /> 女</label>
+        <form onSubmit={handleSubmit} className="mt-8 space-y-8" noValidate>
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-md">
+            <h2 className="text-xl font-semibold text-slate-900">基本情報</h2>
+            <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                <label htmlFor="customerName" className="mb-2 block text-sm font-semibold text-slate-700">
+                  顧客名 <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="customerName"
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => {
+                    setCustomerName(e.target.value);
+                    clearError('customerName');
+                  }}
+                  className={inputClass('customerName')}
+                  aria-invalid={Boolean(errors.customerName)}
+                  aria-describedby={errors.customerName ? 'customerName-error' : undefined}
+                  placeholder="例：山田 花子"
+                  autoComplete="name"
+                  required
+                />
+                {errors.customerName && (
+                  <p id="customerName-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.customerName}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                  施術者 <span className="text-rose-500">*</span>
+                </span>
+                <input
+                  id="practitioner"
+                  type="text"
+                  value={practitioner}
+                  onChange={(e) => {
+                    setPractitioner(e.target.value);
+                    clearError('practitioner');
+                  }}
+                  className={inputClass('practitioner')}
+                  aria-invalid={Boolean(errors.practitioner)}
+                  aria-describedby={errors.practitioner ? 'practitioner-error' : undefined}
+                  placeholder="例：佐藤"
+                  autoComplete="off"
+                  required
+                />
+                {errors.practitioner && (
+                  <p id="practitioner-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.practitioner}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <span className="mb-2 block text-sm font-semibold text-slate-700">性別</span>
+                <div className="grid grid-cols-2 gap-3">
+                  {GENDERS.map((option) => (
+                    <label key={option} className={chipClass(gender === option)}>
+                      <input
+                        type="radio"
+                        className="sr-only"
+                        name="gender"
+                        value={option}
+                        checked={gender === option}
+                        onChange={(e) => {
+                          setGender(e.target.value);
+                          clearError('gender');
+                        }}
+                      />
+                      {option}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="ageGroup" className="mb-2 block text-sm font-semibold text-slate-700">
+                  年齢層 <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  id="ageGroup"
+                  value={ageGroup}
+                  onChange={(e) => {
+                    setAgeGroup(e.target.value);
+                    clearError('ageGroup');
+                  }}
+                  className={inputClass('ageGroup')}
+                  aria-invalid={Boolean(errors.ageGroup)}
+                  aria-describedby={errors.ageGroup ? 'ageGroup-error' : undefined}
+                  required
+                >
+                  {AGE_GROUPS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                {errors.ageGroup && (
+                  <p id="ageGroup-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.ageGroup}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <span className="mb-2 block text-sm font-semibold text-slate-700">お客様区分</span>
+                <div className="grid grid-cols-2 gap-3">
+                  {CUSTOMER_TYPES.map((type) => (
+                    <label key={type} className={chipClass(customerType === type)}>
+                      <input
+                        type="radio"
+                        className="sr-only"
+                        name="customerType"
+                        value={type}
+                        checked={customerType === type}
+                        onChange={(e) => {
+                          setCustomerType(e.target.value);
+                          clearError('customerType');
+                        }}
+                      />
+                      {type}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="visitCount" className="mb-2 block text-sm font-semibold text-slate-700">
+                  来店回数 <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  id="visitCount"
+                  value={visitCount}
+                  onChange={(e) => {
+                    setVisitCount(e.target.value);
+                    clearError('visitCount');
+                  }}
+                  className={inputClass('visitCount')}
+                  aria-invalid={Boolean(errors.visitCount)}
+                  aria-describedby={errors.visitCount ? 'visitCount-error' : undefined}
+                  disabled={customerType === '新規'}
+                  required
+                >
+                  {visitCountOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                {errors.visitCount && (
+                  <p id="visitCount-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.visitCount}
+                  </p>
+                )}
               </div>
             </div>
-            <div>
-              <label className="block mb-1 font-medium">年齢層</label>
-              <select value={ageGroup} onChange={(e) => setAgeGroup(e.target.value)} className="w-full p-2 border rounded">
-                <option>10代</option>
-                <option>20代</option>
-                <option>30代</option>
-                <option>40代</option>
-                <option>50代</option>
-                <option>60代以上</option>
-              </select>
+          </section>
+
+          {customerType === '新規' && (
+            <section className="rounded-3xl border border-slate-200 bg-blue-50/70 p-6 shadow-md">
+              <h2 className="text-xl font-semibold text-slate-900">新規のお客様情報</h2>
+              <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div>
+                  <label htmlFor="postalCode" className="mb-2 block text-sm font-semibold text-slate-700">
+                    郵便番号 <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="postalCode"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="\\d*"
+                    value={postalCode}
+                    onChange={(e) => {
+                      const numericValue = e.target.value.replace(/[^0-9]/g, '').slice(0, 7);
+                      setPostalCode(numericValue);
+                      clearError('postalCode');
+                    }}
+                    className={inputClass('postalCode')}
+                    aria-invalid={Boolean(errors.postalCode)}
+                    aria-describedby={errors.postalCode ? 'postalCode-error' : undefined}
+                    placeholder="例：1234567"
+                    required
+                  />
+                  {errors.postalCode && (
+                    <p id="postalCode-error" className="mt-2 text-sm text-rose-600" role="alert">
+                      {errors.postalCode}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="channel" className="mb-2 block text-sm font-semibold text-slate-700">
+                    経由 <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    id="channel"
+                    value={channel}
+                    onChange={(e) => {
+                      setChannel(e.target.value);
+                      clearError('channel');
+                    }}
+                    className={inputClass('channel')}
+                    aria-invalid={Boolean(errors.channel)}
+                    aria-describedby={errors.channel ? 'channel-error' : undefined}
+                    required
+                  >
+                    {CHANNELS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.channel && (
+                    <p id="channel-error" className="mt-2 text-sm text-rose-600" role="alert">
+                      {errors.channel}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-md">
+            <h2 className="text-xl font-semibold text-slate-900">施術・売上情報</h2>
+            <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                <label htmlFor="totalTime" className="mb-2 block text-sm font-semibold text-slate-700">
+                  合計施術時間 (分) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="totalTime"
+                  type="number"
+                  min="1"
+                  inputMode="numeric"
+                  value={totalTime}
+                  onChange={(e) => {
+                    setTotalTime(e.target.value);
+                    clearError('totalTime');
+                  }}
+                  className={inputClass('totalTime')}
+                  aria-invalid={Boolean(errors.totalTime)}
+                  aria-describedby={errors.totalTime ? 'totalTime-error' : undefined}
+                  placeholder="例：60"
+                  required
+                />
+                {errors.totalTime && (
+                  <p id="totalTime-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.totalTime}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="sales" className="mb-2 block text-sm font-semibold text-slate-700">
+                  施術売上 (税込) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="sales"
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  value={sales}
+                  onChange={(e) => {
+                    setSales(e.target.value);
+                    clearError('sales');
+                  }}
+                  className={`${inputClass('sales')} bg-blue-50/70`}
+                  aria-invalid={Boolean(errors.sales)}
+                  aria-describedby={errors.sales ? 'sales-error' : undefined}
+                  placeholder="時間から自動計算されます"
+                  required
+                />
+                {errors.sales && (
+                  <p id="sales-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.sales}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="headSpaCourse" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <span className="flex items-center gap-2">
+                    <span>ヘッドスパコース (分)</span>
+                    <span className="text-xs font-normal text-slate-500">0分なら未記入でOK</span>
+                  </span>
+                </label>
+                <input
+                  id="headSpaCourse"
+                  type="text"
+                  value={headSpaCourse}
+                  onChange={(e) => {
+                    setHeadSpaCourse(e.target.value);
+                    clearError('headSpaCourse');
+                  }}
+                  className={inputClass('headSpaCourse')}
+                  placeholder="例：40分"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="productSales" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <span className="flex items-center gap-2">
+                    <span>物販売上 (税込)</span>
+                    <span className="text-xs font-normal text-slate-500">0円なら未記入でOK</span>
+                  </span>
+                </label>
+                <input
+                  id="productSales"
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  value={productSales}
+                  onChange={(e) => {
+                    setProductSales(e.target.value);
+                    clearError('productSales');
+                  }}
+                  className={inputClass('productSales')}
+                  placeholder="0"
+                />
+                {errors.productSales && (
+                  <p id="productSales-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.productSales}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="ticketSales" className="mb-2 block text-sm font-semibold text-slate-700">
+                  <span className="flex items-center gap-2">
+                    <span>回数券販売数</span>
+                    <span className="text-xs font-normal text-slate-500">0枚なら未記入でOK</span>
+                  </span>
+                </label>
+                <input
+                  id="ticketSales"
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  value={ticketSales}
+                  onChange={(e) => {
+                    setTicketSales(e.target.value);
+                    clearError('ticketSales');
+                  }}
+                  className={inputClass('ticketSales')}
+                  placeholder="0"
+                />
+                {errors.ticketSales && (
+                  <p id="ticketSales-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.ticketSales}
+                  </p>
+                )}
+              </div>
             </div>
-            <div>
-              <label className="block mb-1 font-medium">お客様区分</label>
-              <select value={customerType} onChange={(e) => setCustomerType(e.target.value)} className="w-full p-2 border rounded">
-                <option>新規</option>
-                <option>再来店</option>
-              </select>
+
+            <div className="mt-6">
+              <span className="mb-2 block text-sm font-semibold text-slate-700">オプション</span>
+              <div className="flex flex-wrap gap-3">
+                {OPTIONS.map((option) => (
+                  <label key={option} className={chipClass(options.includes(option))}>
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      value={option}
+                      checked={options.includes(option)}
+                      onChange={(e) => handleOptionChange(option, e.target.checked)}
+                    />
+                    {option}
+                  </label>
+                ))}
+              </div>
             </div>
-            <div>
-              <label className="block mb-1 font-medium">来店回数</label>
-               <select value={visitCount} onChange={(e) => setVisitCount(e.target.value)} className="w-full p-2 border rounded">
-                <option>1回</option>
-                <option>2回</option>
-                <option>3回</option>
-                <option>4回</option>
-                <option>5回</option>
-                <option>6回以上</option>
-              </select>
+
+            <div className="mt-6 flex items-center gap-3 rounded-2xl border border-slate-200 bg-blue-50/70 px-4 py-3">
+              <input
+                id="nextReservation"
+                type="checkbox"
+                className="h-5 w-5 rounded border-slate-300 text-blue-500"
+                checked={nextReservation}
+                onChange={(e) => setNextReservation(e.target.checked)}
+              />
+              <label htmlFor="nextReservation" className="text-base font-medium text-slate-700">
+                次回予約あり
+              </label>
             </div>
+          </section>
+
+          <div className="text-center">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex w-full items-center justify-center rounded-2xl bg-blue-500 px-8 py-4 text-lg font-semibold text-white shadow-lg transition hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              {isSubmitting ? '送信中...' : 'データを登録する'}
+            </button>
           </div>
-        </div>
 
-        {/* ----- 新規のお客様専用セクション ----- */}
-        {customerType === '新規' && (
-          <div className="p-4 border rounded-lg bg-blue-50">
-            <h2 className="text-xl font-semibold mb-4">新規のお客様情報</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-               <div>
-                 <label className="block mb-1 font-medium">郵便番号</label>
-                 <input type="text" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} className="w-full p-2 border rounded" />
-               </div>
-               <div>
-                 <label className="block mb-1 font-medium">経由</label>
-                 <select value={channel} onChange={(e) => setChannel(e.target.value)} className="w-full p-2 border rounded">
-                   <option>インスタグラム</option>
-                   <option>X</option>
-                   <option>TikTok</option>
-                   <option>Googleマップ</option>
-                   <option>ホットペッパー</option>
-                   <option>youtube</option>
-                   <option>紹介</option>
-                 </select>
-               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ----- 施術情報セクション ----- */}
-        <div className="p-4 border rounded-lg">
-          <h2 className="text-xl font-semibold mb-4">施術・売上情報</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block mb-1 font-medium">合計施術時間 (分)</label>
-              <input type="number" value={totalTime} onChange={(e) => setTotalTime(e.target.value)} required className="w-full p-2 border rounded" />
-            </div>
-             <div>
-              <label className="block mb-1 font-medium">施術売上 (税込)</label>
-              <input type="number" value={sales} onChange={(e) => setSales(e.target.value)} placeholder="時間から自動計算されます" required className="w-full p-2 border rounded bg-gray-100" />
-            </div>
-             <div>
-              <label className="block mb-1 font-medium">ヘッドスパコース (分)</label>
-              <input type="text" value={headSpaCourse} onChange={(e) => setHeadSpaCourse(e.target.value)} className="w-full p-2 border rounded" />
-            </div>
-            <div>
-              <label className="block mb-1 font-medium">物販売上 (税込)</label>
-              <input type="number" value={productSales} onChange={(e) => setProductSales(e.target.value)} className="w-full p-2 border rounded" />
-            </div>
-            <div>
-              <label className="block mb-1 font-medium">回数券販売数</label>
-              <input type="number" value={ticketSales} onChange={(e) => setTicketSales(e.target.value)} className="w-full p-2 border rounded" />
-            </div>
-          </div>
-           <div className="mt-4">
-             <label className="block mb-1 font-medium">オプション</label>
-             <div className="flex gap-4 pt-2">
-                <label className="flex items-center gap-2"><input type="checkbox" value="首肩" checked={options.includes('首肩')} onChange={handleOptionChange} /> 首肩</label>
-                <label className="flex items-center gap-2"><input type="checkbox" value="ハンド" checked={options.includes('ハンド')} onChange={handleOptionChange} /> ハンド</label>
-             </div>
-           </div>
-           <div className="mt-6">
-             <label className="flex items-center gap-2 text-lg">
-               <input type="checkbox" checked={nextReservation} onChange={(e) => setNextReservation(e.target.checked)} className="w-5 h-5" />
-               次回予約あり
-             </label>
-           </div>
-        </div>
-
-        {/* ----- 送信ボタン ----- */}
-        <div className="text-center pt-4">
-          <button type="submit" disabled={isSubmitting} className="bg-blue-500 text-white px-8 py-3 rounded-lg hover:bg-blue-600 disabled:bg-gray-400 text-lg font-bold">
-            {isSubmitting ? '送信中...' : 'データを登録する'}
-          </button>
-        </div>
-
-        {/* ----- 送信後のメッセージ表示エリア ----- */}
-        {submitMessage && (
-          <p className="text-center text-lg mt-4 p-4 rounded-lg bg-gray-100">{submitMessage}</p>
-        )}
-      </form>
+          {submitMessage && (
+            <p className="rounded-2xl bg-white px-4 py-3 text-center text-base font-medium text-slate-700 shadow-md" role="status" aria-live="polite">
+              {submitMessage}
+            </p>
+          )}
+        </form>
+      </div>
     </main>
   );
 }
