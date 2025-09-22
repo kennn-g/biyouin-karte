@@ -24,7 +24,7 @@ export default function Home() {
   const [channel, setChannel] = useState(CHANNELS[0]);
   const [practitioner, setPractitioner] = useState('');
   const [totalTime, setTotalTime] = useState('');
-  const [headSpaCourse, setHeadSpaCourse] = useState('');
+  const [headSpaCourse, setHeadSpaCourse] = useState('0');
   const [options, setOptions] = useState<string[]>([]);
   const [sales, setSales] = useState('');
   const [productSales, setProductSales] = useState('0');
@@ -215,7 +215,7 @@ export default function Home() {
       <div className="mx-auto max-w-3xl px-4 py-10">
         <h1 className="text-3xl font-bold text-slate-900">美容院 顧客情報フォーム</h1>
         <p className="mt-3 text-base text-slate-600">
-          必須項目を入力し、確認のうえ「データを登録する」をタップしてください。
+          必須項目を入力し、確認のうえ「データを提出する」をタップしてください。
         </p>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-8" noValidate>
@@ -275,7 +275,9 @@ export default function Home() {
               </div>
 
               <div>
-                <span className="mb-2 block text-sm font-semibold text-slate-700">性別</span>
+                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                  性別 <span className="text-rose-500">*</span>
+                </span>
                 <div className="grid grid-cols-2 gap-3">
                   {GENDERS.map((option) => (
                     <label key={option} className={chipClass(gender === option)}>
@@ -326,7 +328,9 @@ export default function Home() {
               </div>
 
               <div>
-                <span className="mb-2 block text-sm font-semibold text-slate-700">お客様区分</span>
+                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                  お客様区分 <span className="text-rose-500">*</span>
+                </span>
                 <div className="grid grid-cols-2 gap-3">
                   {CUSTOMER_TYPES.map((type) => (
                     <label key={type} className={chipClass(customerType === type)}>
@@ -404,6 +408,7 @@ export default function Home() {
                     placeholder="例：1234567"
                     required
                   />
+                  <p className="mt-2 text-sm text-slate-500">ハイフンなしの半角数字で入力してください。</p>
                   {errors.postalCode && (
                     <p id="postalCode-error" className="mt-2 text-sm text-rose-600" role="alert">
                       {errors.postalCode}
@@ -504,7 +509,7 @@ export default function Home() {
                 <label htmlFor="headSpaCourse" className="mb-2 block text-sm font-semibold text-slate-700">
                   <span className="flex items-center gap-2">
                     <span>ヘッドスパコース (分)</span>
-                    <span className="text-xs font-normal text-slate-500">0分なら未記入でOK</span>
+                    <span className="text-xs font-normal text-slate-500">0分ならそのままでOK</span>
                   </span>
                 </label>
                 <input
@@ -516,7 +521,7 @@ export default function Home() {
                     clearError('headSpaCourse');
                   }}
                   className={inputClass('headSpaCourse')}
-                  placeholder="例：40分"
+                  placeholder="0"
                 />
               </div>
 
@@ -613,7 +618,7 @@ export default function Home() {
               disabled={isSubmitting}
               className="inline-flex w-full items-center justify-center rounded-2xl bg-blue-500 px-8 py-4 text-lg font-semibold text-white shadow-lg transition hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
-              {isSubmitting ? '送信中...' : 'データを登録する'}
+              {isSubmitting ? '送信中...' : 'データを提出する'}
             </button>
           </div>
 
