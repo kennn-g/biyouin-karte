@@ -11,6 +11,7 @@ const VISIT_COUNTS_BY_TYPE: Record<(typeof CUSTOMER_TYPES)[number], string[]> = 
 };
 const CHANNELS = ['インスタグラム', 'X', 'TikTok', 'Googleマップ', 'ホットペッパー', 'youtube', '紹介'];
 const OPTIONS = ['首肩', 'ハンド'];
+const PRACTITIONERS = ['すず', 'ある', 'さよこ', 'みき', 'さつき', 'みう'];
 
 type ErrorState = Record<string, string>;
 
@@ -54,11 +55,13 @@ export default function Home() {
         : 'border-slate-200 hover:border-blue-300 focus:ring-blue-300'
     }`;
 
-  const chipClass = (isSelected: boolean) =>
-    `flex items-center justify-center rounded-xl border px-4 py-3 text-base font-medium shadow-sm transition ${
+  const chipClass = (isSelected: boolean, hasError = false) =>
+    `flex min-h-[3rem] cursor-pointer items-center justify-center rounded-xl border px-4 py-4 text-base font-medium shadow-sm transition ${
       isSelected
         ? 'border-blue-400 bg-blue-100 text-blue-900'
-        : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300'
+        : hasError
+          ? 'border-rose-300 bg-rose-50 text-rose-700 hover:border-rose-400'
+          : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300'
     }`;
 
   useEffect(() => {
@@ -249,24 +252,37 @@ export default function Home() {
               </div>
 
               <div>
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                <span id="practitioner-label" className="mb-2 block text-sm font-semibold text-slate-700">
                   施術者 <span className="text-rose-500">*</span>
                 </span>
-                <input
-                  id="practitioner"
-                  type="text"
-                  value={practitioner}
-                  onChange={(e) => {
-                    setPractitioner(e.target.value);
-                    clearError('practitioner');
-                  }}
-                  className={inputClass('practitioner')}
+                <div
+                  className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+                  role="radiogroup"
+                  aria-labelledby="practitioner-label"
                   aria-invalid={Boolean(errors.practitioner)}
                   aria-describedby={errors.practitioner ? 'practitioner-error' : undefined}
-                  placeholder="例：佐藤"
-                  autoComplete="off"
-                  required
-                />
+                >
+                  {PRACTITIONERS.map((name) => (
+                    <label
+                      key={name}
+                      className={chipClass(practitioner === name, Boolean(errors.practitioner))}
+                    >
+                      <input
+                        type="radio"
+                        className="sr-only"
+                        name="practitioner"
+                        value={name}
+                        checked={practitioner === name}
+                        onChange={(e) => {
+                          setPractitioner(e.target.value);
+                          clearError('practitioner');
+                        }}
+                        required
+                      />
+                      {name}
+                    </label>
+                  ))}
+                </div>
                 {errors.practitioner && (
                   <p id="practitioner-error" className="mt-2 text-sm text-rose-600" role="alert">
                     {errors.practitioner}

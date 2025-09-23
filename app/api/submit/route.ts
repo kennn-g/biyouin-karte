@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     });
 
     const newRow = [
-      new Date().toLocaleString('ja-JP'),
+      new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
       body.customerName,
       body.gender,
       body.ageGroup,

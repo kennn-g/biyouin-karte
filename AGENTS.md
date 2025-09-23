@@ -1,4 +1,5 @@
 # Repository Guidelines
+日本語でとても丁寧に回答してください。
 
 ## Project Structure & Module Organization
 The Next.js 15 app directory lives under `app/`. Route handlers land in `app/api/**` (see `app/api/submit/route.ts` for the Google Sheets bridge) and UI routes stay alongside their `page.tsx` and layout files. Shared styles load from `app/globals.css`, while static assets (logos, icons, favicons) belong in `public/`. TypeScript configuration (`tsconfig.json`) defines the `@/*` path alias that resolves against the repository root; prefer it for cross-module imports. Keep environment secrets in `.env.local`, never committed to git.
