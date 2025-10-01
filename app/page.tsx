@@ -12,6 +12,28 @@ const VISIT_COUNTS_BY_TYPE: Record<(typeof CUSTOMER_TYPES)[number], string[]> = 
 const CHANNELS = ['インスタグラム', 'X', 'TikTok', 'Googleマップ', 'ホットペッパー', 'youtube', '紹介'];
 const OPTIONS = ['首肩', 'ハンド'];
 const PRACTITIONERS = ['すず', 'ある', 'さよこ', 'みき', 'さつき', 'みう'];
+const STAFF_TYPES = ['固定給スタッフ', '歩合制スタッフ'];
+const NOMINATION_OPTIONS = ['指名なし', '指名あり'];
+const PRICE_PER_TEN_MINUTES = 1000;
+const KATAKANA_REGEX = /^[\u30A0-\u30FFー・]+$/;
+
+const formatDateForInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatDateForDisplay = (value: string) => {
+  if (!value) {
+    return '';
+  }
+  const [year, month, day] = value.split('-');
+  if (!year || !month || !day) {
+    return value;
+  }
+  return `${year}年${month}月${day}日`;
+};
 
 type ErrorState = Record<string, string>;
 
@@ -24,12 +46,19 @@ export default function Home() {
   const [postalCode, setPostalCode] = useState('');
   const [channel, setChannel] = useState(CHANNELS[0]);
   const [practitioner, setPractitioner] = useState('');
-  const [totalTime, setTotalTime] = useState('');
-  const [headSpaCourse, setHeadSpaCourse] = useState('0');
+  const [businessDay, setBusinessDay] = useState(() => formatDateForInput(new Date()));
+  const [headSpaMinutes, setHeadSpaMinutes] = useState('');
+  const [optionMinutes, setOptionMinutes] = useState('');
   const [options, setOptions] = useState<string[]>([]);
-  const [sales, setSales] = useState('');
   const [productSales, setProductSales] = useState('0');
   const [ticketSales, setTicketSales] = useState('0');
+  const [hpbPointUsage, setHpbPointUsage] = useState('0');
+  const [storePointUsage, setStorePointUsage] = useState('0');
+  const [ticketUsageAmount, setTicketUsageAmount] = useState('0');
+  const [giftUsageAmount, setGiftUsageAmount] = useState('0');
+  const [giftPurchaseAmount, setGiftPurchaseAmount] = useState('0');
+  const [staffType, setStaffType] = useState(STAFF_TYPES[0]);
+  const [nominationStatus, setNominationStatus] = useState(NOMINATION_OPTIONS[0]);
   const [nextReservation, setNextReservation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
@@ -64,21 +93,42 @@ export default function Home() {
           : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300'
     }`;
 
-  useEffect(() => {
-    if (!totalTime || isNaN(Number(totalTime))) {
-      setSales('');
-      return;
+  const toNumber = (value: string) => {
+    if (!value) {
+      return 0;
     }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
 
-    const minutes = Number(totalTime);
+  const calculateAmountByMinutes = (minutesValue: string) => {
+    const minutes = toNumber(minutesValue);
     if (minutes <= 0) {
-      setSales('');
-      return;
+      return 0;
     }
+    return Math.round((minutes / 10) * PRICE_PER_TEN_MINUTES);
+  };
 
-    const calculatedSales = (minutes / 10) * 1000;
-    setSales(String(Math.round(calculatedSales)));
-  }, [totalTime]);
+  const headSpaAmount = calculateAmountByMinutes(headSpaMinutes);
+  const optionAmount = calculateAmountByMinutes(optionMinutes);
+  const hpbPointAmount = toNumber(hpbPointUsage);
+  const ticketUsageValue = toNumber(ticketUsageAmount);
+  const giftPurchaseValue = toNumber(giftPurchaseAmount);
+  const productSalesValue = toNumber(productSales);
+  const nominationFee = nominationStatus === '指名あり' ? 500 : 0;
+
+  const commissionSalesAmount =
+    ticketUsageValue > 0
+      ? ticketUsageValue + giftPurchaseValue
+      : headSpaAmount + optionAmount + hpbPointAmount + giftPurchaseValue;
+
+  const fixedSalesAmount =
+    ticketUsageValue > 0
+      ? ticketUsageValue + productSalesValue + nominationFee
+      : headSpaAmount + optionAmount + productSalesValue + nominationFee;
+
+  const selectedStaffSalesAmount =
+    staffType === '固定給スタッフ' ? fixedSalesAmount : commissionSalesAmount;
 
   useEffect(() => {
     if (customerType === '新規') {
@@ -105,8 +155,11 @@ export default function Home() {
   const validateForm = (): ErrorState => {
     const validationErrors: ErrorState = {};
 
-    if (!customerName.trim()) {
+    const trimmedCustomerName = customerName.trim();
+    if (!trimmedCustomerName) {
       validationErrors.customerName = '顧客名は必須です。';
+    } else if (!KATAKANA_REGEX.test(trimmedCustomerName)) {
+      validationErrors.customerName = '顧客名は全角カタカナで空白なしで入力してください。';
     }
 
     if (!practitioner.trim()) {
@@ -121,6 +174,12 @@ export default function Home() {
       validationErrors.visitCount = '来店回数を選択してください。';
     }
 
+    if (!businessDay) {
+      validationErrors.businessDay = '営業日を選択してください。';
+    } else if (Number.isNaN(new Date(businessDay).getTime())) {
+      validationErrors.businessDay = '有効な日付を選択してください。';
+    }
+
     if (customerType === '新規') {
       if (!postalCode.trim()) {
         validationErrors.postalCode = '郵便番号を入力してください。';
@@ -133,23 +192,30 @@ export default function Home() {
       }
     }
 
-    if (!totalTime.trim()) {
-      validationErrors.totalTime = '合計施術時間を入力してください。';
-    } else if (Number(totalTime) <= 0) {
-      validationErrors.totalTime = '1分以上で入力してください。';
-    }
+    const numericValidationTargets: Array<{ value: string; key: string; message: string }> = [
+      { value: headSpaMinutes, key: 'headSpaMinutes', message: '時間は半角数字で入力してください。' },
+      { value: optionMinutes, key: 'optionMinutes', message: '時間は半角数字で入力してください。' },
+      { value: productSales, key: 'productSales', message: '数字のみ入力してください。' },
+      { value: ticketSales, key: 'ticketSales', message: '数字のみ入力してください。' },
+      { value: hpbPointUsage, key: 'hpbPointUsage', message: '数字のみ入力してください。' },
+      { value: storePointUsage, key: 'storePointUsage', message: '数字のみ入力してください。' },
+      { value: ticketUsageAmount, key: 'ticketUsageAmount', message: '数字のみ入力してください。' },
+      { value: giftUsageAmount, key: 'giftUsageAmount', message: '数字のみ入力してください。' },
+      { value: giftPurchaseAmount, key: 'giftPurchaseAmount', message: '数字のみ入力してください。' },
+    ];
 
-    if (!sales.trim()) {
-      validationErrors.sales = '施術売上を入力してください。';
-    }
-
-    if (productSales && isNaN(Number(productSales))) {
-      validationErrors.productSales = '数字のみ入力してください。';
-    }
-
-    if (ticketSales && isNaN(Number(ticketSales))) {
-      validationErrors.ticketSales = '数字のみ入力してください。';
-    }
+    numericValidationTargets.forEach(({ value, key, message }) => {
+      const trimmedValue = value.trim();
+      if (!trimmedValue) {
+        return;
+      }
+      const parsed = Number(trimmedValue);
+      if (Number.isNaN(parsed)) {
+        validationErrors[key] = message;
+      } else if (parsed < 0) {
+        validationErrors[key] = '0以上の数字を入力してください。';
+      }
+    });
 
     return validationErrors;
   };
@@ -168,21 +234,38 @@ export default function Home() {
     setErrors({});
     setIsSubmitting(true);
 
+    const numericToString = (value: string) => String(toNumber(value));
+    const sanitizedCustomerName = customerName.trim();
+    const sanitizedPostalCode = postalCode.trim();
+
     const formData = {
-      customerName,
+      customerName: sanitizedCustomerName,
       gender,
       ageGroup,
       customerType,
       visitCount,
-      postalCode: customerType === '新規' ? postalCode : '',
+      postalCode: customerType === '新規' ? sanitizedPostalCode : '',
       channel: customerType === '新規' ? channel : '',
       practitioner,
-      totalTime,
-      headSpaCourse: headSpaCourse || '0',
+      businessDay: formatDateForDisplay(businessDay),
+      headSpaMinutes: numericToString(headSpaMinutes),
+      headSpaAmount: String(headSpaAmount),
+      optionMinutes: numericToString(optionMinutes),
+      optionAmount: String(optionAmount),
       options: options.join(', '),
-      sales: sales || '0',
-      productSales: productSales || '0',
-      ticketSales: ticketSales || '0',
+      productSales: numericToString(productSales),
+      ticketSales: numericToString(ticketSales),
+      hpbPointUsage: numericToString(hpbPointUsage),
+      storePointUsage: numericToString(storePointUsage),
+      ticketUsageAmount: numericToString(ticketUsageAmount),
+      giftUsageAmount: numericToString(giftUsageAmount),
+      giftPurchaseAmount: numericToString(giftPurchaseAmount),
+      staffType,
+      nominationStatus,
+      nominationFee: String(nominationFee),
+      fixedSalesAmount: String(fixedSalesAmount),
+      commissionSalesAmount: String(commissionSalesAmount),
+      selectedStaffSalesAmount: String(selectedStaffSalesAmount),
       nextReservation: nextReservation ? '有' : '無',
     };
 
@@ -234,16 +317,18 @@ export default function Home() {
                   type="text"
                   value={customerName}
                   onChange={(e) => {
-                    setCustomerName(e.target.value);
+                    const katakanaValue = e.target.value.replace(/\s+/g, '');
+                    setCustomerName(katakanaValue);
                     clearError('customerName');
                   }}
                   className={inputClass('customerName')}
                   aria-invalid={Boolean(errors.customerName)}
                   aria-describedby={errors.customerName ? 'customerName-error' : undefined}
-                  placeholder="例：山田 花子"
+                  placeholder="例：ヤマダハナコ"
                   autoComplete="name"
                   required
                 />
+                <p className="mt-2 text-sm text-slate-500">全角カタカナ・スペースなしでご入力ください。</p>
                 {errors.customerName && (
                   <p id="customerName-error" className="mt-2 text-sm text-rose-600" role="alert">
                     {errors.customerName}
@@ -396,6 +481,31 @@ export default function Home() {
                   </p>
                 )}
               </div>
+
+              <div>
+                <label htmlFor="businessDay" className="mb-2 block text-sm font-semibold text-slate-700">
+                  営業日 <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="businessDay"
+                  type="date"
+                  value={businessDay}
+                  onChange={(e) => {
+                    setBusinessDay(e.target.value);
+                    clearError('businessDay');
+                  }}
+                  className={inputClass('businessDay')}
+                  aria-invalid={Boolean(errors.businessDay)}
+                  aria-describedby={errors.businessDay ? 'businessDay-error' : undefined}
+                  required
+                />
+                <p className="mt-2 text-sm text-slate-500">カレンダーから営業日を選択してください（例：{formatDateForDisplay(businessDay)}）。</p>
+                {errors.businessDay && (
+                  <p id="businessDay-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.businessDay}
+                  </p>
+                )}
+              </div>
             </div>
           </section>
 
@@ -466,165 +576,447 @@ export default function Home() {
 
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-md">
             <h2 className="text-xl font-semibold text-slate-900">施術・売上情報</h2>
-            <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className="mt-6 space-y-8">
               <div>
-                <label htmlFor="totalTime" className="mb-2 block text-sm font-semibold text-slate-700">
-                  合計施術時間 (分) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  id="totalTime"
-                  type="number"
-                  min="1"
-                  inputMode="numeric"
-                  value={totalTime}
-                  onChange={(e) => {
-                    setTotalTime(e.target.value);
-                    clearError('totalTime');
-                  }}
-                  className={inputClass('totalTime')}
-                  aria-invalid={Boolean(errors.totalTime)}
-                  aria-describedby={errors.totalTime ? 'totalTime-error' : undefined}
-                  placeholder="例：60"
-                  required
-                />
-                {errors.totalTime && (
-                  <p id="totalTime-error" className="mt-2 text-sm text-rose-600" role="alert">
-                    {errors.totalTime}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="sales" className="mb-2 block text-sm font-semibold text-slate-700">
-                  施術売上 (税込) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  id="sales"
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  value={sales}
-                  onChange={(e) => {
-                    setSales(e.target.value);
-                    clearError('sales');
-                  }}
-                  className={`${inputClass('sales')} bg-blue-50/70`}
-                  aria-invalid={Boolean(errors.sales)}
-                  aria-describedby={errors.sales ? 'sales-error' : undefined}
-                  placeholder="時間から自動計算されます"
-                  required
-                />
-                {errors.sales && (
-                  <p id="sales-error" className="mt-2 text-sm text-rose-600" role="alert">
-                    {errors.sales}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="headSpaCourse" className="mb-2 block text-sm font-semibold text-slate-700">
-                  <span className="flex items-center gap-2">
-                    <span>ヘッドスパコース (分)</span>
-                    <span className="text-xs font-normal text-slate-500">0分ならそのままでOK</span>
-                  </span>
-                </label>
-                <input
-                  id="headSpaCourse"
-                  type="text"
-                  value={headSpaCourse}
-                  onChange={(e) => {
-                    setHeadSpaCourse(e.target.value);
-                    clearError('headSpaCourse');
-                  }}
-                  className={inputClass('headSpaCourse')}
-                  placeholder="0"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="productSales" className="mb-2 block text-sm font-semibold text-slate-700">
-                  <span className="flex items-center gap-2">
-                    <span>物販売上 (税込)</span>
-                    <span className="text-xs font-normal text-slate-500">0円なら未記入でOK</span>
-                  </span>
-                </label>
-                <input
-                  id="productSales"
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  value={productSales}
-                  onChange={(e) => {
-                    setProductSales(e.target.value);
-                    clearError('productSales');
-                  }}
-                  className={inputClass('productSales')}
-                  placeholder="0"
-                />
-                {errors.productSales && (
-                  <p id="productSales-error" className="mt-2 text-sm text-rose-600" role="alert">
-                    {errors.productSales}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="ticketSales" className="mb-2 block text-sm font-semibold text-slate-700">
-                  <span className="flex items-center gap-2">
-                    <span>回数券販売数</span>
-                    <span className="text-xs font-normal text-slate-500">0枚なら未記入でOK</span>
-                  </span>
-                </label>
-                <input
-                  id="ticketSales"
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  value={ticketSales}
-                  onChange={(e) => {
-                    setTicketSales(e.target.value);
-                    clearError('ticketSales');
-                  }}
-                  className={inputClass('ticketSales')}
-                  placeholder="0"
-                />
-                {errors.ticketSales && (
-                  <p id="ticketSales-error" className="mt-2 text-sm text-rose-600" role="alert">
-                    {errors.ticketSales}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">オプション</span>
-              <div className="flex flex-wrap gap-3">
-                {OPTIONS.map((option) => (
-                  <label key={option} className={chipClass(options.includes(option))}>
+                <h3 className="text-lg font-semibold text-slate-800">ヘッドスパコース</h3>
+                <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div>
+                    <label htmlFor="headSpaMinutes" className="mb-2 block text-sm font-semibold text-slate-700">
+                      時間 (分)
+                    </label>
                     <input
-                      type="checkbox"
-                      className="sr-only"
-                      value={option}
-                      checked={options.includes(option)}
-                      onChange={(e) => handleOptionChange(option, e.target.checked)}
+                      id="headSpaMinutes"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={headSpaMinutes}
+                      onChange={(e) => {
+                        setHeadSpaMinutes(e.target.value);
+                        clearError('headSpaMinutes');
+                      }}
+                      className={inputClass('headSpaMinutes')}
+                      aria-invalid={Boolean(errors.headSpaMinutes)}
+                      aria-describedby={errors.headSpaMinutes ? 'headSpaMinutes-error' : undefined}
+                      placeholder="0"
                     />
-                    {option}
-                  </label>
-                ))}
+                    {errors.headSpaMinutes && (
+                      <p id="headSpaMinutes-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.headSpaMinutes}
+                      </p>
+                    )}
+                    <p className="mt-2 text-xs text-slate-500">0分の場合はそのままで問題ありません。</p>
+                  </div>
+                  <div>
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">ヘッドスパ金額 (自動計算)</span>
+                    <input
+                      id="headSpaAmount"
+                      type="number"
+                      inputMode="numeric"
+                      value={String(headSpaAmount)}
+                      readOnly
+                      tabIndex={-1}
+                      className={`${inputClass('headSpaAmount')} bg-blue-50/70`}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div className="mt-6 flex items-center gap-3 rounded-2xl border border-slate-200 bg-blue-50/70 px-4 py-3">
-              <input
-                id="nextReservation"
-                type="checkbox"
-                className="h-5 w-5 rounded border-slate-300 text-blue-500"
-                checked={nextReservation}
-                onChange={(e) => setNextReservation(e.target.checked)}
-              />
-              <label htmlFor="nextReservation" className="text-base font-medium text-slate-700">
-                次回予約あり
-              </label>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800">オプション</h3>
+                <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div>
+                    <label htmlFor="optionMinutes" className="mb-2 block text-sm font-semibold text-slate-700">
+                      時間 (分)
+                    </label>
+                    <input
+                      id="optionMinutes"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={optionMinutes}
+                      onChange={(e) => {
+                        setOptionMinutes(e.target.value);
+                        clearError('optionMinutes');
+                      }}
+                      className={inputClass('optionMinutes')}
+                      aria-invalid={Boolean(errors.optionMinutes)}
+                      aria-describedby={errors.optionMinutes ? 'optionMinutes-error' : undefined}
+                      placeholder="0"
+                    />
+                    {errors.optionMinutes && (
+                      <p id="optionMinutes-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.optionMinutes}
+                      </p>
+                    )}
+                    <p className="mt-2 text-xs text-slate-500">0分の場合はそのままで問題ありません。</p>
+                  </div>
+                  <div>
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">オプション金額 (自動計算)</span>
+                    <input
+                      id="optionAmount"
+                      type="number"
+                      inputMode="numeric"
+                      value={String(optionAmount)}
+                      readOnly
+                      tabIndex={-1}
+                      className={`${inputClass('optionAmount')} bg-blue-50/70`}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">オプション内容</span>
+                  <div className="flex flex-wrap gap-3">
+                    {OPTIONS.map((option) => (
+                      <label key={option} className={chipClass(options.includes(option))}>
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          value={option}
+                          checked={options.includes(option)}
+                          onChange={(e) => handleOptionChange(option, e.target.checked)}
+                        />
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800">売上・ポイント</h3>
+                <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div>
+                    <label htmlFor="productSales" className="mb-2 block text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span>物販売上 (税込)</span>
+                        <span className="text-xs font-normal text-slate-500">0円なら未記入でOK</span>
+                      </span>
+                    </label>
+                    <input
+                      id="productSales"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={productSales}
+                      onChange={(e) => {
+                        setProductSales(e.target.value);
+                        clearError('productSales');
+                      }}
+                      className={inputClass('productSales')}
+                      placeholder="0"
+                      aria-invalid={Boolean(errors.productSales)}
+                      aria-describedby={errors.productSales ? 'productSales-error' : undefined}
+                    />
+                    {errors.productSales && (
+                      <p id="productSales-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.productSales}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="ticketSales" className="mb-2 block text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span>回数券販売数</span>
+                        <span className="text-xs font-normal text-slate-500">0枚なら未記入でOK</span>
+                      </span>
+                    </label>
+                    <input
+                      id="ticketSales"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={ticketSales}
+                      onChange={(e) => {
+                        setTicketSales(e.target.value);
+                        clearError('ticketSales');
+                      }}
+                      className={inputClass('ticketSales')}
+                      placeholder="0"
+                      aria-invalid={Boolean(errors.ticketSales)}
+                      aria-describedby={errors.ticketSales ? 'ticketSales-error' : undefined}
+                    />
+                    {errors.ticketSales && (
+                      <p id="ticketSales-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.ticketSales}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="hpbPointUsage" className="mb-2 block text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span>HPBポイント使用 (円)</span>
+                        <span className="text-xs font-normal text-slate-500">0円なら未記入でOK</span>
+                      </span>
+                    </label>
+                    <input
+                      id="hpbPointUsage"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={hpbPointUsage}
+                      onChange={(e) => {
+                        setHpbPointUsage(e.target.value);
+                        clearError('hpbPointUsage');
+                      }}
+                      className={inputClass('hpbPointUsage')}
+                      placeholder="0"
+                      aria-invalid={Boolean(errors.hpbPointUsage)}
+                      aria-describedby={errors.hpbPointUsage ? 'hpbPointUsage-error' : undefined}
+                    />
+                    {errors.hpbPointUsage && (
+                      <p id="hpbPointUsage-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.hpbPointUsage}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="storePointUsage" className="mb-2 block text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span>店舗ポイント使用 (円)</span>
+                        <span className="text-xs font-normal text-slate-500">0円なら未記入でOK</span>
+                      </span>
+                    </label>
+                    <input
+                      id="storePointUsage"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={storePointUsage}
+                      onChange={(e) => {
+                        setStorePointUsage(e.target.value);
+                        clearError('storePointUsage');
+                      }}
+                      className={inputClass('storePointUsage')}
+                      placeholder="0"
+                      aria-invalid={Boolean(errors.storePointUsage)}
+                      aria-describedby={errors.storePointUsage ? 'storePointUsage-error' : undefined}
+                    />
+                    {errors.storePointUsage && (
+                      <p id="storePointUsage-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.storePointUsage}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="ticketUsageAmount" className="mb-2 block text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span>回数券の使用 (円)</span>
+                        <span className="text-xs font-normal text-slate-500">0円なら未記入でOK</span>
+                      </span>
+                    </label>
+                    <input
+                      id="ticketUsageAmount"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={ticketUsageAmount}
+                      onChange={(e) => {
+                        setTicketUsageAmount(e.target.value);
+                        clearError('ticketUsageAmount');
+                      }}
+                      className={inputClass('ticketUsageAmount')}
+                      placeholder="0"
+                      aria-invalid={Boolean(errors.ticketUsageAmount)}
+                      aria-describedby={errors.ticketUsageAmount ? 'ticketUsageAmount-error' : undefined}
+                    />
+                    {errors.ticketUsageAmount && (
+                      <p id="ticketUsageAmount-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.ticketUsageAmount}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="giftUsageAmount" className="mb-2 block text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span>ギフト券の使用 (円)</span>
+                        <span className="text-xs font-normal text-slate-500">0円なら未記入でOK</span>
+                      </span>
+                    </label>
+                    <input
+                      id="giftUsageAmount"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={giftUsageAmount}
+                      onChange={(e) => {
+                        setGiftUsageAmount(e.target.value);
+                        clearError('giftUsageAmount');
+                      }}
+                      className={inputClass('giftUsageAmount')}
+                      placeholder="0"
+                      aria-invalid={Boolean(errors.giftUsageAmount)}
+                      aria-describedby={errors.giftUsageAmount ? 'giftUsageAmount-error' : undefined}
+                    />
+                    {errors.giftUsageAmount && (
+                      <p id="giftUsageAmount-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.giftUsageAmount}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="giftPurchaseAmount" className="mb-2 block text-sm font-semibold text-slate-700">
+                      <span className="flex items-center gap-2">
+                        <span>ギフト券の購入 (円)</span>
+                        <span className="text-xs font-normal text-slate-500">0円なら未記入でOK</span>
+                      </span>
+                    </label>
+                    <input
+                      id="giftPurchaseAmount"
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={giftPurchaseAmount}
+                      onChange={(e) => {
+                        setGiftPurchaseAmount(e.target.value);
+                        clearError('giftPurchaseAmount');
+                      }}
+                      className={inputClass('giftPurchaseAmount')}
+                      placeholder="0"
+                      aria-invalid={Boolean(errors.giftPurchaseAmount)}
+                      aria-describedby={errors.giftPurchaseAmount ? 'giftPurchaseAmount-error' : undefined}
+                    />
+                    {errors.giftPurchaseAmount && (
+                      <p id="giftPurchaseAmount-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.giftPurchaseAmount}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800">スタッフ設定</h3>
+                <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div>
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">スタッフ区分</span>
+                    <div
+                      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+                      role="radiogroup"
+                      aria-invalid={Boolean(errors.staffType)}
+                      aria-describedby={errors.staffType ? 'staffType-error' : undefined}
+                    >
+                      {STAFF_TYPES.map((type) => (
+                        <label key={type} className={chipClass(staffType === type)}>
+                          <input
+                            type="radio"
+                            className="sr-only"
+                            name="staffType"
+                            value={type}
+                            checked={staffType === type}
+                            onChange={(e) => {
+                              setStaffType(e.target.value);
+                              clearError('staffType');
+                            }}
+                          />
+                          {type}
+                        </label>
+                      ))}
+                    </div>
+                    {errors.staffType && (
+                      <p id="staffType-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.staffType}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">指名の有無</span>
+                    <div
+                      className="grid grid-cols-2 gap-3"
+                      role="radiogroup"
+                      aria-invalid={Boolean(errors.nominationStatus)}
+                      aria-describedby={errors.nominationStatus ? 'nominationStatus-error' : undefined}
+                    >
+                      {NOMINATION_OPTIONS.map((option) => (
+                        <label key={option} className={chipClass(nominationStatus === option)}>
+                          <input
+                            type="radio"
+                            className="sr-only"
+                            name="nominationStatus"
+                            value={option}
+                            checked={nominationStatus === option}
+                            onChange={(e) => {
+                              setNominationStatus(e.target.value);
+                              clearError('nominationStatus');
+                            }}
+                          />
+                          {option}
+                        </label>
+                      ))}
+                    </div>
+                    {errors.nominationStatus && (
+                      <p id="nominationStatus-error" className="mt-2 text-sm text-rose-600" role="alert">
+                        {errors.nominationStatus}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+                  <div>
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">指名料 (自動加算)</span>
+                    <input
+                      id="nominationFee"
+                      type="number"
+                      inputMode="numeric"
+                      value={String(nominationFee)}
+                      readOnly
+                      tabIndex={-1}
+                      className={`${inputClass('nominationFee')} bg-blue-50/70`}
+                    />
+                  </div>
+
+                  {staffType === '歩合制スタッフ' && (
+                    <div>
+                      <span className="mb-2 block text-sm font-semibold text-slate-700">歩合制売上額 (自動計算)</span>
+                      <input
+                        id="commissionSalesAmount"
+                        type="number"
+                        inputMode="numeric"
+                        value={String(commissionSalesAmount)}
+                        readOnly
+                        tabIndex={-1}
+                        className={`${inputClass('commissionSalesAmount')} bg-blue-50/70`}
+                      />
+                    </div>
+                  )}
+
+                  {staffType === '固定給スタッフ' && (
+                    <div>
+                      <span className="mb-2 block text-sm font-semibold text-slate-700">固定制売上額 (自動計算)</span>
+                      <input
+                        id="fixedSalesAmount"
+                        type="number"
+                        inputMode="numeric"
+                        value={String(fixedSalesAmount)}
+                        readOnly
+                        tabIndex={-1}
+                        className={`${inputClass('fixedSalesAmount')} bg-blue-50/70`}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-blue-50/70 px-4 py-3">
+                <input
+                  id="nextReservation"
+                  type="checkbox"
+                  className="h-5 w-5 rounded border-slate-300 text-blue-500"
+                  checked={nextReservation}
+                  onChange={(e) => setNextReservation(e.target.checked)}
+                />
+                <label htmlFor="nextReservation" className="text-base font-medium text-slate-700">
+                  次回予約あり
+                </label>
+              </div>
             </div>
           </section>
 
