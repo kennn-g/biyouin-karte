@@ -1,61 +1,81 @@
-// app/api/submit/route.ts の修正版
-
-import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
 
+const sanitizeUrl = (value?: string) => {
+  if (!value) return undefined;
+  const trimmed = value.trim().replace(/^['"]+|['"]+$/g, '');
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const GAS_WEBAPP_URL = sanitizeUrl(process.env.GAS_WEBAPP_URL);
+const GAS_SHEET_NAME = process.env.GAS_SHEET_NAME ?? 'フォーム入力';
+
 export async function POST(request: Request) {
+  if (!GAS_WEBAPP_URL) {
+    return NextResponse.json(
+      { error: 'GAS_WEBAPP_URL が設定されていません。' },
+      { status: 500 },
+    );
+  }
+
+  let gasWebAppUrl: URL;
+  try {
+    gasWebAppUrl = new URL(GAS_WEBAPP_URL);
+  } catch {
+    return NextResponse.json(
+      { error: 'GAS_WEBAPP_URL の書式が正しくありません。URL 文字列を確認してください。' },
+      { status: 500 },
+    );
+  }
+
   try {
     const body = await request.json();
+    const timestamp = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    const payloadEntries = Object.entries({
+      sheetName: GAS_SHEET_NAME,
+      timestamp,
+      customerName: body.customerName,
+      gender: body.gender,
+      customerType: body.customerType,
+      channel: body.channel,
+      practitioner: body.practitioner,
+      businessDay: body.businessDay,
+      ticketStatus: body.ticketStatus,
+      hasNextReservation: body.hasNextReservation,
+      nextReservationDate: body.nextReservationDate,
+    }).filter(([, value]) => value !== undefined && value !== null);
+
+    const formBody = new URLSearchParams();
+    for (const [key, value] of payloadEntries) {
+      formBody.append(key, String(value));
+    }
+
+    const gasResponse = await fetch(gasWebAppUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
       },
-      scopes: [
-        'https://www.googleapis.com/auth/spreadsheets',
-      ],
+      body: formBody.toString(),
     });
 
-    const sheets = google.sheets({
-      auth,
-      version: 'v4',
-    });
+    const responseText = await gasResponse.text();
 
-    const newRow = [
-      new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
-      body.customerName,
-      body.gender,
-      body.ageGroup,
-      body.customerType,
-      body.visitCount,
-      body.postalCode,
-      body.channel,
-      body.practitioner,
-      body.totalTime,
-      body.headSpaCourse,
-      body.options,
-      body.sales,
-      body.productSales,
-      body.ticketSales,
-      body.nextReservation,
-    ];
+    if (!gasResponse.ok) {
+      return NextResponse.json(
+        { error: `Google Apps Script error: ${responseText}` },
+        { status: 502 },
+      );
+    }
 
-    const response = await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: 'フォーム入力',
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [newRow],
-      },
-    });
-
-    return NextResponse.json({ message: 'Success', data: response.data }, { status: 200 });
-
-  } catch (error) { // ← (error: any) から (error) へ変更
+    try {
+      const parsed = JSON.parse(responseText);
+      return NextResponse.json({ message: 'Success', data: parsed }, { status: 200 });
+    } catch {
+      return NextResponse.json({ message: 'Success', data: responseText }, { status: 200 });
+    }
+  } catch (error) {
     console.error(error);
-    // エラーがErrorインスタンスか確認してからメッセージを取得する
-    const errorMessage = error instanceof Error ? error.message : 'Something went wrong';
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    const message = error instanceof Error ? error.message : '不明なエラーが発生しました。';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
