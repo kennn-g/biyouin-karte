@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 
-const GENDERS = ['男', '女'];
 const CUSTOMER_TYPES = ['新規', '再来店'];
 const REPEAT_CHANNEL_LABEL = 'リピート（2回目以降の来店は全員こちら）';
 const CHANNELS = [
@@ -40,7 +39,9 @@ const TICKET_OPTIONS = [
   'その他',
 ];
 const PRACTITIONERS = ['すず', 'ある', 'さよこ', 'みき', 'さつき', 'みう'];
-const KATAKANA_REGEX = /^[\u30A0-\u30FFー・]+$/;
+const FULL_WIDTH_SPACE = '　';
+const CUSTOMER_NAME_REGEX = /^[\u30A0-\u30FFー・]+　[\u30A0-\u30FFー・]+$/;
+const CHANNELS_FOR_NEW = CHANNELS.filter((option) => option !== REPEAT_CHANNEL_LABEL);
 
 const formatDateForInput = (date: Date) => {
   const year = date.getFullYear();
@@ -60,13 +61,19 @@ const formatDateForDisplay = (value: string) => {
   return `${year}年${month}月${day}日`;
 };
 
+const trimFullWidthWhitespace = (value: string) => value.replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+
+const normalizeCustomerNameInput = (value: string) =>
+  value
+    .replace(/[\s\u3000]+/g, ' ')
+    .replace(/ /g, FULL_WIDTH_SPACE);
+
 type ErrorState = Record<string, string>;
 
 export default function Home() {
   const [customerName, setCustomerName] = useState('');
-  const [gender, setGender] = useState(GENDERS[0]);
   const [customerType, setCustomerType] = useState(CUSTOMER_TYPES[0]);
-  const [channel, setChannel] = useState(REPEAT_CHANNEL_LABEL);
+  const [channel, setChannel] = useState('');
   const [practitioner, setPractitioner] = useState('');
   const [businessDay, setBusinessDay] = useState(() => formatDateForInput(new Date()));
   const [ticketStatus, setTicketStatus] = useState(TICKET_OPTIONS[0]);
@@ -102,28 +109,31 @@ export default function Home() {
     }`;
 
   useEffect(() => {
-    if (customerType !== '再来店') {
-      return;
-    }
-    setChannel(REPEAT_CHANNEL_LABEL);
-    setErrors((prev) => {
-      if (!prev.channel) {
-        return prev;
+    if (customerType === '再来店') {
+      if (channel !== REPEAT_CHANNEL_LABEL) {
+        setChannel(REPEAT_CHANNEL_LABEL);
       }
-      const next = { ...prev };
-      delete next.channel;
-      return next;
-    });
-  }, [customerType]);
+      setErrors((prev) => {
+        if (!prev.channel) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next.channel;
+        return next;
+      });
+    } else if (channel === REPEAT_CHANNEL_LABEL) {
+      setChannel('');
+    }
+  }, [channel, customerType]);
 
   const validateForm = (): ErrorState => {
     const validationErrors: ErrorState = {};
 
-    const trimmedCustomerName = customerName.trim();
+    const trimmedCustomerName = trimFullWidthWhitespace(customerName);
     if (!trimmedCustomerName) {
       validationErrors.customerName = '顧客名は必須です。';
-    } else if (!KATAKANA_REGEX.test(trimmedCustomerName)) {
-      validationErrors.customerName = '顧客名は全角カタカナで空白なしで入力してください。';
+    } else if (!CUSTOMER_NAME_REGEX.test(trimmedCustomerName)) {
+      validationErrors.customerName = '顧客名は「ヤマダ　ハナコ」のように全角カタカナで姓と名の間に全角スペースを入れて入力してください。';
     }
 
     if (!practitioner.trim()) {
@@ -136,8 +146,12 @@ export default function Home() {
       validationErrors.businessDay = '有効な日付を選択してください。';
     }
 
-    if (customerType === '新規' && !channel.trim()) {
-      validationErrors.channel = '経由を選択してください。';
+    if (customerType === '新規') {
+      if (!channel.trim()) {
+        validationErrors.channel = '経由を選択してください。';
+      } else if (channel === REPEAT_CHANNEL_LABEL) {
+        validationErrors.channel = '新規のお客様にはリピート以外の経由を選択してください。';
+      }
     }
 
     if (!ticketStatus) {
@@ -176,20 +190,16 @@ export default function Home() {
     setErrors({});
     setIsSubmitting(true);
 
-    const sanitizedCustomerName = customerName.trim();
+    const sanitizedCustomerName = trimFullWidthWhitespace(customerName);
     const formData = {
       customerName: sanitizedCustomerName,
-      gender,
       customerType,
-      channel: customerType === '新規' ? channel : REPEAT_CHANNEL_LABEL,
+      channel: customerType === '再来店' ? REPEAT_CHANNEL_LABEL : channel,
       practitioner,
-      businessDay: formatDateForDisplay(businessDay),
+      businessDay,
       ticketStatus,
       hasNextReservation,
-      nextReservationDate:
-        hasNextReservation === 'あり'
-          ? formatDateForDisplay(nextReservationDate)
-          : '',
+      nextReservationDate: hasNextReservation === 'あり' ? nextReservationDate : '',
     };
 
     try {
@@ -265,18 +275,18 @@ export default function Home() {
                   type="text"
                   value={customerName}
                   onChange={(e) => {
-                    const katakanaValue = e.target.value.replace(/\s+/g, '');
-                    setCustomerName(katakanaValue);
+                    const inputValue = normalizeCustomerNameInput(e.target.value);
+                    setCustomerName(inputValue);
                     clearError('customerName');
                   }}
                   className={inputClass('customerName')}
                   aria-invalid={Boolean(errors.customerName)}
                   aria-describedby={errors.customerName ? 'customerName-error' : undefined}
-                  placeholder="例：ヤマダハナコ"
+                  placeholder="例：ヤマダ　ハナコ"
                   autoComplete="name"
                   required
                 />
-                <p className="mt-2 text-sm text-slate-500">全角カタカナ・スペースなしでご入力ください。</p>
+                <p className="mt-2 text-sm text-slate-500">姓と名の間に全角スペースを入れて、全角カタカナでご入力ください。</p>
                 {errors.customerName && (
                   <p id="customerName-error" className="mt-2 text-sm text-rose-600" role="alert">
                     {errors.customerName}
@@ -322,31 +332,6 @@ export default function Home() {
                   </p>
                 )}
               </div>
-
-              <div>
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  性別 <span className="text-rose-500">*</span>
-                </span>
-                <div className="grid grid-cols-2 gap-3">
-                  {GENDERS.map((option) => (
-                    <label key={option} className={chipClass(gender === option)}>
-                      <input
-                        type="radio"
-                        className="sr-only"
-                        name="gender"
-                        value={option}
-                        checked={gender === option}
-                        onChange={(e) => {
-                          setGender(e.target.value);
-                          clearError('gender');
-                        }}
-                      />
-                      {option}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
               <div>
                 <span className="mb-2 block text-sm font-semibold text-slate-700">
                   お客様区分 <span className="text-rose-500">*</span>
@@ -393,7 +378,10 @@ export default function Home() {
                     aria-describedby={errors.channel ? 'channel-error' : undefined}
                     required
                   >
-                    {CHANNELS.map((option) => (
+                    <option value="" disabled hidden>
+                      経由を選択してください
+                    </option>
+                    {CHANNELS_FOR_NEW.map((option) => (
                       <option key={option} value={option}>
                         {option}
                       </option>

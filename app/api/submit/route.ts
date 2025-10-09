@@ -1,81 +1,178 @@
 import { NextResponse } from 'next/server';
+import { google } from 'googleapis';
 
-const sanitizeUrl = (value?: string) => {
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const DEFAULT_SHEET_NAME = 'フォーム入力';
+const FULL_WIDTH_SPACE = '　';
+
+const sanitizeEnvValue = (value?: string) => {
   if (!value) return undefined;
   const trimmed = value.trim().replace(/^['"]+|['"]+$/g, '');
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const GAS_WEBAPP_URL = sanitizeUrl(process.env.GAS_WEBAPP_URL);
-const GAS_SHEET_NAME = process.env.GAS_SHEET_NAME ?? 'フォーム入力';
+const sanitizePrivateKey = (value?: string) => {
+  const sanitized = sanitizeEnvValue(value);
+  return sanitized?.replace(/\\n/g, '\n');
+};
+
+const escapeSheetName = (name: string) => `'${name.replace(/'/g, "''")}'`;
+
+const trimFullWidthWhitespace = (value: string) => value.replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
+
+const normalizeCustomerNameForSheet = (value: unknown) => {
+  if (value === undefined || value === null) {
+    return '';
+  }
+  const trimmed = trimFullWidthWhitespace(String(value));
+  return trimmed.replace(/[\s\u3000]+/g, ' ');
+};
+
+const formatDateToYYYYMMDD = (value: unknown) => {
+  if (value === undefined || value === null) {
+    return '';
+  }
+
+  const stringValue = String(value).trim();
+  if (!stringValue) {
+    return '';
+  }
+
+  if (/^\d{8}$/.test(stringValue)) {
+    return stringValue;
+  }
+
+  const normalized = stringValue
+    .replace(/[年月]/g, '-')
+    .replace(/日/g, '')
+    .replace(/[./]/g, '-')
+    .replace(new RegExp(FULL_WIDTH_SPACE, 'g'), '-');
+
+  const parts = normalized.split('-').filter(Boolean);
+  if (parts.length !== 3) {
+    return '';
+  }
+
+  const [yearRaw, monthRaw, dayRaw] = parts;
+
+  if (!/^\d{4}$/.test(yearRaw) || !/^\d{1,2}$/.test(monthRaw) || !/^\d{1,2}$/.test(dayRaw)) {
+    return '';
+  }
+
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return '';
+  }
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return '';
+  }
+
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return '';
+  }
+
+  const paddedMonth = month.toString().padStart(2, '0');
+  const paddedDay = day.toString().padStart(2, '0');
+
+  return `${year}${paddedMonth}${paddedDay}`;
+};
+
+const getSheetsClient = async (clientEmail: string, privateKey: string) => {
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: clientEmail,
+      private_key: privateKey,
+    },
+    scopes: SCOPES,
+  });
+
+  return google.sheets({ version: 'v4', auth });
+};
 
 export async function POST(request: Request) {
-  if (!GAS_WEBAPP_URL) {
-    return NextResponse.json(
-      { error: 'GAS_WEBAPP_URL が設定されていません。' },
-      { status: 500 },
-    );
+  const spreadsheetId = sanitizeEnvValue(process.env.SPREADSHEET_ID);
+  const clientEmail = sanitizeEnvValue(process.env.GOOGLE_CLIENT_EMAIL);
+  const privateKey = sanitizePrivateKey(process.env.GOOGLE_PRIVATE_KEY);
+  const sheetName = sanitizeEnvValue(process.env.GOOGLE_SHEET_NAME) ?? DEFAULT_SHEET_NAME;
+
+  if (!spreadsheetId) {
+    return NextResponse.json({ error: 'SPREADSHEET_ID が設定されていません。' }, { status: 500 });
   }
 
-  let gasWebAppUrl: URL;
-  try {
-    gasWebAppUrl = new URL(GAS_WEBAPP_URL);
-  } catch {
-    return NextResponse.json(
-      { error: 'GAS_WEBAPP_URL の書式が正しくありません。URL 文字列を確認してください。' },
-      { status: 500 },
-    );
+  if (!clientEmail) {
+    return NextResponse.json({ error: 'GOOGLE_CLIENT_EMAIL が設定されていません。' }, { status: 500 });
   }
 
+  if (!privateKey) {
+    return NextResponse.json({ error: 'GOOGLE_PRIVATE_KEY が設定されていません。' }, { status: 500 });
+  }
+
+  let sheetsClient;
   try {
-    const body = await request.json();
-    const timestamp = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    sheetsClient = await getSheetsClient(clientEmail, privateKey);
+  } catch (error) {
+    console.error('GoogleAuth 初期化中にエラーが発生しました。', error);
+    const message = error instanceof Error ? error.message : '認証時に不明なエラーが発生しました。';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 
-    const payloadEntries = Object.entries({
-      sheetName: GAS_SHEET_NAME,
-      timestamp,
-      customerName: body.customerName,
-      gender: body.gender,
-      customerType: body.customerType,
-      channel: body.channel,
-      practitioner: body.practitioner,
-      businessDay: body.businessDay,
-      ticketStatus: body.ticketStatus,
-      hasNextReservation: body.hasNextReservation,
-      nextReservationDate: body.nextReservationDate,
-    }).filter(([, value]) => value !== undefined && value !== null);
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (error) {
+    console.error('リクエストボディの解析中にエラーが発生しました。', error);
+    return NextResponse.json({ error: '送信データの形式が正しくありません。' }, { status: 400 });
+  }
 
-    const formBody = new URLSearchParams();
-    for (const [key, value] of payloadEntries) {
-      formBody.append(key, String(value));
-    }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: '送信データが正しくありません。' }, { status: 400 });
+  }
 
-    const gasResponse = await fetch(gasWebAppUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+  const payload = body as Record<string, unknown>;
+
+  const businessDayValue = formatDateToYYYYMMDD(payload.businessDay);
+  const nextReservationDateValue = formatDateToYYYYMMDD(payload.nextReservationDate);
+  const customerNameValue = normalizeCustomerNameForSheet(payload.customerName);
+
+  if (!businessDayValue) {
+    return NextResponse.json({ error: '営業日が不正な形式です。' }, { status: 400 });
+  }
+
+  if (!customerNameValue) {
+    return NextResponse.json({ error: '顧客名が不正です。' }, { status: 400 });
+  }
+
+  const rowValues = [
+    businessDayValue,
+    customerNameValue,
+    String(payload.practitioner ?? ''),
+    String(payload.customerType ?? ''),
+    String(payload.channel ?? ''),
+    String(payload.ticketStatus ?? ''),
+    String(payload.hasNextReservation ?? ''),
+    nextReservationDateValue,
+  ];
+
+  try {
+    await sheetsClient.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${escapeSheetName(sheetName)}!A:H`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values: [rowValues],
       },
-      body: formBody.toString(),
     });
 
-    const responseText = await gasResponse.text();
-
-    if (!gasResponse.ok) {
-      return NextResponse.json(
-        { error: `Google Apps Script error: ${responseText}` },
-        { status: 502 },
-      );
-    }
-
-    try {
-      const parsed = JSON.parse(responseText);
-      return NextResponse.json({ message: 'Success', data: parsed }, { status: 200 });
-    } catch {
-      return NextResponse.json({ message: 'Success', data: responseText }, { status: 200 });
-    }
+    return NextResponse.json({ message: 'Success' }, { status: 200 });
   } catch (error) {
-    console.error(error);
-    const message = error instanceof Error ? error.message : '不明なエラーが発生しました。';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('Google Sheets への書き込み中にエラーが発生しました。', error);
+    const message = error instanceof Error ? error.message : 'スプレッドシートへの書き込みに失敗しました。';
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }
