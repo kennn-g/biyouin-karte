@@ -177,8 +177,9 @@ export async function POST(request: Request) {
   }
 
   // 例: Next.js の API Route / server action / 任意のサーバー処理の最後で
-  await fetch(`https://script.google.com/macros/s/${process.env.GAS_DEPLOY_ID}/exec?token=${process.env.RECALC_TOKEN}&action=recalc`, {
+  await fetch(`${process.env.GAS_EXEC_URL}?token=${process.env.RECALC_TOKEN}&action=recalc`, {
     method: 'POST',
   });
+
 
 }
