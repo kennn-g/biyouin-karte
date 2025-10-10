@@ -150,6 +150,7 @@ function normalizeKeys(p: StringRecord): StringRecord {
   // 既定の列（あなたのシートに合わせて）
   data['会計日']     = pick('会計日', 'businessDay', 'date');
   data['顧客名']     = pick('顧客名', 'customerName', 'name');
+  data['性別']       = pick('性別', 'gender', 'sex');
   data['施術者']     = pick('施術者', 'therapist', 'practitioner', 'staff');
   data['お客様区分'] = pick('お客様区分', 'customerType');
   data['経由']       = pick('経由', 'source', 'channel');
@@ -180,4 +181,3 @@ async function callRecalc(): Promise<void> {
     throw new Error(`GAS recalc failed: ${res.status} ${t}`);
   }
 }
-

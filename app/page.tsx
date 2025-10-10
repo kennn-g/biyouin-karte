@@ -39,6 +39,7 @@ const TICKET_OPTIONS = [
   'その他',
 ];
 const PRACTITIONERS = ['すず', 'ある', 'さよこ', 'みき', 'さつき', 'みう'];
+const GENDER_OPTIONS = ['男性', '女性'] as const;
 const FULL_WIDTH_SPACE = '　';
 const CUSTOMER_NAME_REGEX = /^[\u30A0-\u30FFー・]+　[\u30A0-\u30FFー・]+$/;
 const CHANNELS_FOR_NEW = CHANNELS.filter((option) => option !== REPEAT_CHANNEL_LABEL);
@@ -72,6 +73,7 @@ type ErrorState = Record<string, string>;
 
 export default function Home() {
   const [customerName, setCustomerName] = useState('');
+  const [gender, setGender] = useState('');
   const [customerType, setCustomerType] = useState(CUSTOMER_TYPES[0]);
   const [channel, setChannel] = useState('');
   const [practitioner, setPractitioner] = useState('');
@@ -136,6 +138,10 @@ export default function Home() {
       validationErrors.customerName = '顧客名は「ヤマダ　ハナコ」のように全角カタカナで姓と名の間に全角スペースを入れて入力してください。';
     }
 
+    if (!gender.trim()) {
+      validationErrors.gender = '性別を選択してください。';
+    }
+
     if (!practitioner.trim()) {
       validationErrors.practitioner = '施術者は必須です。';
     }
@@ -193,6 +199,7 @@ export default function Home() {
     const sanitizedCustomerName = trimFullWidthWhitespace(customerName);
     const formData = {
       customerName: sanitizedCustomerName,
+      gender,
       customerType,
       channel: customerType === '再来店' ? REPEAT_CHANNEL_LABEL : channel,
       practitioner,
@@ -290,6 +297,45 @@ export default function Home() {
                 {errors.customerName && (
                   <p id="customerName-error" className="mt-2 text-sm text-rose-600" role="alert">
                     {errors.customerName}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <span id="gender-label" className="mb-2 block text-sm font-semibold text-slate-700">
+                  性別 <span className="text-rose-500">*</span>
+                </span>
+                <div
+                  className="grid grid-cols-2 gap-3"
+                  role="radiogroup"
+                  aria-labelledby="gender-label"
+                  aria-invalid={Boolean(errors.gender)}
+                  aria-describedby={errors.gender ? 'gender-error' : undefined}
+                >
+                  {GENDER_OPTIONS.map((option) => (
+                    <label
+                      key={option}
+                      className={chipClass(gender === option, Boolean(errors.gender))}
+                    >
+                      <input
+                        type="radio"
+                        className="sr-only"
+                        name="gender"
+                        value={option}
+                        checked={gender === option}
+                        onChange={(e) => {
+                          setGender(e.target.value);
+                          clearError('gender');
+                        }}
+                        required
+                      />
+                      {option}
+                    </label>
+                  ))}
+                </div>
+                {errors.gender && (
+                  <p id="gender-error" className="mt-2 text-sm text-rose-600" role="alert">
+                    {errors.gender}
                   </p>
                 )}
               </div>
