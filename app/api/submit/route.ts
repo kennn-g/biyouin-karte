@@ -175,4 +175,10 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : 'スプレッドシートへの書き込みに失敗しました。';
     return NextResponse.json({ error: message }, { status: 502 });
   }
+
+  // 例: Next.js の API Route / server action / 任意のサーバー処理の最後で
+  await fetch(`https://script.google.com/macros/s/${process.env.GAS_DEPLOY_ID}/exec?token=${process.env.RECALC_TOKEN}&action=recalc`, {
+    method: 'POST',
+  });
+
 }
