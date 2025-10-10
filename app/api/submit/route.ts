@@ -1,185 +1,150 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
-const DEFAULT_SHEET_NAME = 'フォーム入力';
-const FULL_WIDTH_SPACE = '　';
+export const runtime = 'nodejs'; // googleapis使用のため
+export const dynamic = 'force-dynamic'; // キャッシュ無効
 
-const sanitizeEnvValue = (value?: string) => {
-  if (!value) return undefined;
-  const trimmed = value.trim().replace(/^['"]+|['"]+$/g, '');
-  return trimmed.length > 0 ? trimmed : undefined;
-};
+/***** 環境変数 *****
+ * SPREADSHEET_ID         … スプレッドシートID（URLの /d/ と /edit の間）
+ * GOOGLE_SHEETS_TAB       … 追記先のシート名（例: フォーム入力）
+ * GOOGLE_CLIENT_EMAIL … サービスアカウントの client_email
+ * GOOGLE_PRIVATE_KEY  … サービスアカウントの private_key（\n を改行に）
+ * GAS_EXEC_URL     … Apps Script WebアプリURL（/exec まで）
+ * RECALC_TOKEN     … Code.gs の RECALC_CONFIG.token と同じ値
+ * SKIP_SHEET_WRITE … '1' ならシート追記をスキップ（既に他で直書きしている場合）
+ * CORS_ORIGIN      … 必要なら https://your-site.example を設定（未設定なら * ）
+ ************************/
 
-const sanitizePrivateKey = (value?: string) => {
-  const sanitized = sanitizeEnvValue(value);
-  return sanitized?.replace(/\\n/g, '\n');
-};
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': process.env.CORS_ORIGIN || '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  };
+}
 
-const escapeSheetName = (name: string) => `'${name.replace(/'/g, "''")}'`;
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: corsHeaders() as any });
+}
 
-const trimFullWidthWhitespace = (value: string) => value.replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
-
-const normalizeCustomerNameForSheet = (value: unknown) => {
-  if (value === undefined || value === null) {
-    return '';
-  }
-  const trimmed = trimFullWidthWhitespace(String(value));
-  return trimmed.replace(/[\s\u3000]+/g, ' ');
-};
-
-const formatDateToYYYYMMDD = (value: unknown) => {
-  if (value === undefined || value === null) {
-    return '';
-  }
-
-  const stringValue = String(value).trim();
-  if (!stringValue) {
-    return '';
-  }
-
-  if (/^\d{8}$/.test(stringValue)) {
-    return stringValue;
-  }
-
-  const normalized = stringValue
-    .replace(/[年月]/g, '-')
-    .replace(/日/g, '')
-    .replace(/[./]/g, '-')
-    .replace(new RegExp(FULL_WIDTH_SPACE, 'g'), '-');
-
-  const parts = normalized.split('-').filter(Boolean);
-  if (parts.length !== 3) {
-    return '';
-  }
-
-  const [yearRaw, monthRaw, dayRaw] = parts;
-
-  if (!/^\d{4}$/.test(yearRaw) || !/^\d{1,2}$/.test(monthRaw) || !/^\d{1,2}$/.test(dayRaw)) {
-    return '';
-  }
-
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  const day = Number(dayRaw);
-
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-    return '';
-  }
-
-  if (month < 1 || month > 12 || day < 1 || day > 31) {
-    return '';
-  }
-
-  const date = new Date(year, month - 1, day);
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    return '';
-  }
-
-  const paddedMonth = month.toString().padStart(2, '0');
-  const paddedDay = day.toString().padStart(2, '0');
-
-  return `${year}${paddedMonth}${paddedDay}`;
-};
-
-const getSheetsClient = async (clientEmail: string, privateKey: string) => {
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: clientEmail,
-      private_key: privateKey,
-    },
-    scopes: SCOPES,
-  });
-
-  return google.sheets({ version: 'v4', auth });
-};
-
-export async function POST(request: Request) {
-  const spreadsheetId = sanitizeEnvValue(process.env.SPREADSHEET_ID);
-  const clientEmail = sanitizeEnvValue(process.env.GOOGLE_CLIENT_EMAIL);
-  const privateKey = sanitizePrivateKey(process.env.GOOGLE_PRIVATE_KEY);
-  const sheetName = sanitizeEnvValue(process.env.GOOGLE_SHEET_NAME) ?? DEFAULT_SHEET_NAME;
-
-  if (!spreadsheetId) {
-    return NextResponse.json({ error: 'SPREADSHEET_ID が設定されていません。' }, { status: 500 });
-  }
-
-  if (!clientEmail) {
-    return NextResponse.json({ error: 'GOOGLE_CLIENT_EMAIL が設定されていません。' }, { status: 500 });
-  }
-
-  if (!privateKey) {
-    return NextResponse.json({ error: 'GOOGLE_PRIVATE_KEY が設定されていません。' }, { status: 500 });
-  }
-
-  let sheetsClient;
+export async function POST(req: Request) {
   try {
-    sheetsClient = await getSheetsClient(clientEmail, privateKey);
-  } catch (error) {
-    console.error('GoogleAuth 初期化中にエラーが発生しました。', error);
-    const message = error instanceof Error ? error.message : '認証時に不明なエラーが発生しました。';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+    // 1) リクエストボディ（JSON / form 両対応）
+    const contentType = req.headers.get('content-type') || '';
+    let payload: Record<string, any> = {};
+    if (contentType.includes('application/json')) {
+      payload = await req.json();
+    } else {
+      const fd = await req.formData();
+      fd.forEach((v, k) => (payload[k] = typeof v === 'string' ? v : ''));
+    }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch (error) {
-    console.error('リクエストボディの解析中にエラーが発生しました。', error);
-    return NextResponse.json({ error: '送信データの形式が正しくありません。' }, { status: 400 });
-  }
+    // 2) （任意）シートに追記：SKIP_SHEET_WRITE != '1' のときだけ
+    if (process.env.SKIP_SHEET_WRITE !== '1') {
+      await appendToSheet(payload);
+    }
 
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return NextResponse.json({ error: '送信データが正しくありません。' }, { status: 400 });
-  }
+    // 3) GAS に再計算を依頼
+    await callRecalc();
 
-  const payload = body as Record<string, unknown>;
-
-  const businessDayValue = formatDateToYYYYMMDD(payload.businessDay);
-  const nextReservationDateValue = formatDateToYYYYMMDD(payload.nextReservationDate);
-  const customerNameValue = normalizeCustomerNameForSheet(payload.customerName);
-
-  if (!businessDayValue) {
-    return NextResponse.json({ error: '営業日が不正な形式です。' }, { status: 400 });
-  }
-
-  if (!customerNameValue) {
-    return NextResponse.json({ error: '顧客名が不正です。' }, { status: 400 });
-  }
-
-  const rowValues = [
-    businessDayValue,
-    customerNameValue,
-    String(payload.practitioner ?? ''),
-    String(payload.customerType ?? ''),
-    String(payload.channel ?? ''),
-    String(payload.ticketStatus ?? ''),
-    String(payload.hasNextReservation ?? ''),
-    nextReservationDateValue,
-  ];
-
-  try {
-    await sheetsClient.spreadsheets.values.append({
-      spreadsheetId,
-      range: `${escapeSheetName(sheetName)}!A:H`,
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: {
-        values: [rowValues],
-      },
+    return new NextResponse(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json', ...corsHeaders() },
     });
+  } catch (err: any) {
+    console.error('[form route] error:', err?.message || err);
+    return new NextResponse(JSON.stringify({ ok: false, error: String(err?.message || err) }), {
+      status: 500,
+      headers: { 'content-type': 'application/json', ...corsHeaders() },
+    });
+  }
+}
 
-    return NextResponse.json({ message: 'Success' }, { status: 200 });
-  } catch (error) {
-    console.error('Google Sheets への書き込み中にエラーが発生しました。', error);
-    const message = error instanceof Error ? error.message : 'スプレッドシートへの書き込みに失敗しました。';
-    return NextResponse.json({ error: message }, { status: 502 });
+/* ---------- Google Sheets 追記処理 ---------- */
+
+async function appendToSheet(payload: Record<string, any>) {
+  const SPREADSHEET_ID = process.env.SPREADSHEET_ID!;
+  const GOOGLE_SHEETS_TAB = process.env.GOOGLE_SHEETS_TAB || 'フォーム入力';
+  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL!;
+  const privateKey = (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+
+  if (!SPREADSHEET_ID || !clientEmail || !privateKey) {
+    throw new Error('SPREADSHEET_ID / GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY が未設定です。');
   }
 
-  // 例: Next.js の API Route / server action / 任意のサーバー処理の最後で
-  await fetch(`${process.env.GAS_EXEC_URL}?token=${process.env.RECALC_TOKEN}&action=recalc`, {
-    method: 'POST',
+  // サービスアカウント認証
+  const auth = new google.auth.JWT({
+    email: clientEmail,
+    key: privateKey,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
+  const sheets = google.sheets({ version: 'v4', auth });
 
+  // 1行目のヘッダを取得し、その順番で値配列を作る
+  const headerRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${GOOGLE_SHEETS_TAB}!1:1`,
+  });
+  const headers: string[] = (headerRes.data.values?.[0] as string[]) || [];
+  if (!headers.length) {
+    throw new Error(`シート「${GOOGLE_SHEETS_TAB}」にヘッダー行がありません。先にヘッダーを作成してください。`);
+  }
 
+  // 既存のあなたの列名例：
+  // 「会計日, 顧客名, 施術者, お客様区分, 経由, 回数券情報, 次回予約, 次回予約日」
+  // キー表記ゆれ吸収（和名/英名どちらでもOK）
+  const normalized = normalizeKeys(payload);
+
+  const row = headers.map((h) => normalized[h] ?? '');
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: GOOGLE_SHEETS_TAB,
+    valueInputOption: 'USER_ENTERED',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [row] },
+  });
+}
+
+/** 和名・英名どちらでも受け取れるように正規化する */
+function normalizeKeys(p: Record<string, any>) {
+  const pick = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = p[k];
+      if (v !== undefined && v !== null && String(v).length > 0) return String(v);
+    }
+    return '';
+  };
+
+  const data: Record<string, string> = {};
+  // シート側ヘッダ名に合わせて値を用意（存在しないキーは空文字）
+  data['会計日']     = pick('会計日', 'businessDay', 'date');
+  data['顧客名']     = pick('顧客名', 'customerName', 'name');
+  data['施術者']     = pick('施術者', 'therapist', 'practitioner', 'staff');
+  data['お客様区分'] = pick('お客様区分', 'customerType');
+  data['経由']       = pick('経由', 'source', 'channel');
+  data['回数券情報'] = pick('回数券情報', 'ticketStatus', 'ticket');
+  data['次回予約']   = pick('次回予約', 'hasNextReservation', 'next');
+  data['次回予約日'] = pick('次回予約日', 'nextReservationDate', 'nextDate');
+
+  // 追加の列があればそのまま渡す（ヘッダに一致すれば反映される）
+  for (const [k, v] of Object.entries(p)) {
+    if (!(k in data)) data[k] = String(v ?? '');
+  }
+  return data;
+}
+
+/* ---------- GAS 再計算呼び出し ---------- */
+async function callRecalc() {
+  const execUrl = process.env.GAS_EXEC_URL!;
+  const token = process.env.RECALC_TOKEN!;
+  if (!execUrl || !token) throw new Error('GAS_EXEC_URL / RECALC_TOKEN が未設定です。');
+
+  const url = new URL(execUrl);
+  url.search = new URLSearchParams({ token, action: 'recalc' }).toString();
+
+  const res = await fetch(url.toString(), { method: 'POST' });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`GAS recalc failed: ${res.status} ${t}`);
+  }
 }
