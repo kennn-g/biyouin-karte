@@ -40,8 +40,6 @@ const TICKET_OPTIONS = [
 ];
 const PRACTITIONERS = ['すず', 'ある', 'さよこ', 'みき', 'さつき', 'みう'];
 const GENDER_OPTIONS = ['男性', '女性'] as const;
-const FULL_WIDTH_SPACE = '　';
-const CUSTOMER_NAME_REGEX = /^[\u30A0-\u30FFー・]+　[\u30A0-\u30FFー・]+$/;
 const CHANNELS_FOR_NEW = CHANNELS.filter((option) => option !== REPEAT_CHANNEL_LABEL);
 
 const formatDateForInput = (date: Date) => {
@@ -51,28 +49,9 @@ const formatDateForInput = (date: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-const formatDateForDisplay = (value: string) => {
-  if (!value) {
-    return '';
-  }
-  const [year, month, day] = value.split('-');
-  if (!year || !month || !day) {
-    return value;
-  }
-  return `${year}年${month}月${day}日`;
-};
-
-const trimFullWidthWhitespace = (value: string) => value.replace(/^[\s\u3000]+|[\s\u3000]+$/g, '');
-
-const normalizeCustomerNameInput = (value: string) =>
-  value
-    .replace(/[\s\u3000]+/g, ' ')
-    .replace(/ /g, FULL_WIDTH_SPACE);
-
 type ErrorState = Record<string, string>;
 
 export default function Home() {
-  const [customerName, setCustomerName] = useState('');
   const [gender, setGender] = useState('');
   const [customerType, setCustomerType] = useState(CUSTOMER_TYPES[0]);
   const [channel, setChannel] = useState('');
@@ -130,13 +109,6 @@ export default function Home() {
 
   const validateForm = (): ErrorState => {
     const validationErrors: ErrorState = {};
-
-    const trimmedCustomerName = trimFullWidthWhitespace(customerName);
-    if (!trimmedCustomerName) {
-      validationErrors.customerName = '顧客名は必須です。';
-    } else if (!CUSTOMER_NAME_REGEX.test(trimmedCustomerName)) {
-      validationErrors.customerName = '顧客名は「ヤマダ　ハナコ」のように全角カタカナで姓と名の間に全角スペースを入れて入力してください。';
-    }
 
     if (!gender.trim()) {
       validationErrors.gender = '性別を選択してください。';
@@ -196,9 +168,7 @@ export default function Home() {
     setErrors({});
     setIsSubmitting(true);
 
-    const sanitizedCustomerName = trimFullWidthWhitespace(customerName);
     const formData = {
-      customerName: sanitizedCustomerName,
       gender,
       customerType,
       channel: customerType === '再来店' ? REPEAT_CHANNEL_LABEL : channel,
@@ -239,7 +209,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-emerald-50 text-slate-800">
       <div className="mx-auto max-w-3xl px-4 py-10">
-        <h1 className="text-3xl font-bold text-slate-900">美容院 顧客情報フォーム</h1>
+        <h1 className="text-3xl font-bold text-slate-900">癒し～ぷ　東村山店</h1>
         <p className="mt-3 text-base text-slate-600">
           必須項目を入力し、確認のうえ「データを提出する」をタップしてください。
         </p>
@@ -265,38 +235,10 @@ export default function Home() {
                   aria-describedby={errors.businessDay ? 'businessDay-error' : undefined}
                   required
                 />
-                <p className="mt-2 text-sm text-slate-500">カレンダーから営業日を選択してください（例：{formatDateForDisplay(businessDay)}）。</p>
+                <p className="mt-2 text-sm text-slate-500">カレンダーから営業日を選択してください。</p>
                 {errors.businessDay && (
                   <p id="businessDay-error" className="mt-2 text-sm text-rose-600" role="alert">
                     {errors.businessDay}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="customerName" className="mb-2 block text-sm font-semibold text-slate-700">
-                  顧客名 <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  id="customerName"
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => {
-                    const inputValue = normalizeCustomerNameInput(e.target.value);
-                    setCustomerName(inputValue);
-                    clearError('customerName');
-                  }}
-                  className={inputClass('customerName')}
-                  aria-invalid={Boolean(errors.customerName)}
-                  aria-describedby={errors.customerName ? 'customerName-error' : undefined}
-                  placeholder="例：ヤマダ　ハナコ"
-                  autoComplete="name"
-                  required
-                />
-                <p className="mt-2 text-sm text-slate-500">姓と名の間に全角スペースを入れて、全角カタカナでご入力ください。</p>
-                {errors.customerName && (
-                  <p id="customerName-error" className="mt-2 text-sm text-rose-600" role="alert">
-                    {errors.customerName}
                   </p>
                 )}
               </div>
