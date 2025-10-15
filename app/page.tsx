@@ -52,11 +52,12 @@ const formatDateForInput = (date: Date) => {
 type ErrorState = Record<string, string>;
 
 export default function Home() {
+  const [today] = useState(() => formatDateForInput(new Date()));
   const [gender, setGender] = useState('');
   const [customerType, setCustomerType] = useState(CUSTOMER_TYPES[0]);
   const [channel, setChannel] = useState('');
   const [practitioner, setPractitioner] = useState('');
-  const [businessDay, setBusinessDay] = useState(() => formatDateForInput(new Date()));
+  const [businessDay, setBusinessDay] = useState(() => today);
   const [ticketStatus, setTicketStatus] = useState(TICKET_OPTIONS[0]);
   const [hasNextReservation, setHasNextReservation] = useState<(typeof NEXT_RESERVATION_OPTIONS)[number]>('なし');
   const [nextReservationDate, setNextReservationDate] = useState('');
@@ -122,6 +123,8 @@ export default function Home() {
       validationErrors.businessDay = '営業日を選択してください。';
     } else if (Number.isNaN(new Date(businessDay).getTime())) {
       validationErrors.businessDay = '有効な日付を選択してください。';
+    } else if (businessDay > today) {
+      validationErrors.businessDay = '本日より後の日付は選択できません。';
     }
 
     if (customerType === '新規') {
@@ -147,6 +150,8 @@ export default function Home() {
         const parsedNextReservation = new Date(nextReservationDate);
         if (Number.isNaN(parsedNextReservation.getTime())) {
           validationErrors.nextReservationDate = '有効な日付を選択してください。';
+        } else if (nextReservationDate < today) {
+          validationErrors.nextReservationDate = '本日より前の日付は選択できません。';
         }
       }
     }
@@ -226,6 +231,7 @@ export default function Home() {
                   id="businessDay"
                   type="date"
                   value={businessDay}
+                  max={today}
                   onChange={(e) => {
                     setBusinessDay(e.target.value);
                     clearError('businessDay');
@@ -475,6 +481,7 @@ export default function Home() {
                     id="nextReservationDate"
                     type="date"
                     value={nextReservationDate}
+                    min={today}
                     onChange={(e) => {
                       setNextReservationDate(e.target.value);
                       clearError('nextReservationDate');
