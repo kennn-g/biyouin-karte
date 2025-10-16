@@ -1,6 +1,6 @@
 // /app/api/submit/route.ts
 import { NextResponse } from 'next/server';
-import { google } from 'googleapis';
+import { google, sheets_v4 } from 'googleapis';
 
 export const runtime = 'nodejs';           // googleapis は Node ランタイムで
 export const dynamic = 'force-dynamic';    // キャッシュ不可（都度処理）
@@ -11,13 +11,14 @@ export const dynamic = 'force-dynamic';    // キャッシュ不可（都度処�
  * - SHEET_NAME            … 追記先シート名（例: フォーム入力）
  * - GOOGLE_CLIENT_EMAIL   … サービスアカウントの client_email
  * - GOOGLE_PRIVATE_KEY    … サービスアカウントの private_key（\n を改行に）
- * - GAS_EXEC_URL          … GAS WebアプリURL（/exec まで）
- * - RECALC_TOKEN          … Code.gs の RECALC_CONFIG.token と一致
  * - （任意）SKIP_SHEET_WRITE='1' … シート追記をスキップして再計算のみ行う
  * - （任意）CORS_ORIGIN            … 例: https://your-site.example
  */
 
 type StringRecord = Record<string, string>;
+
+let sheetsClient: sheets_v4.Sheets | null = null;
+const headerCache = new Map<string, string[]>();
 
 function corsHeaders(): Record<string, string> {
   return {
@@ -40,9 +41,6 @@ export async function POST(req: Request) {
     if (process.env.SKIP_SHEET_WRITE !== '1') {
       await appendToSheet(payload);
     }
-
-    // 3) GAS へ再計算を依頼
-    await callRecalc();
 
     return new NextResponse(JSON.stringify({ ok: true }), {
       status: 200,
@@ -94,11 +92,43 @@ function valueToString(v: unknown): string {
 async function appendToSheet(payload: StringRecord): Promise<void> {
   const SHEET_ID = process.env.SHEET_ID || '';
   const SHEET_NAME = process.env.SHEET_NAME || 'フォーム入力';
+  if (!SHEET_ID) {
+    throw new Error('SHEET_ID が未設定です。');
+  }
+
+  const sheets = await getSheetsClient();
+  const cacheKey = `${SHEET_ID}::${SHEET_NAME}`;
+  const headers = await getSheetHeaders(sheets, SHEET_ID, SHEET_NAME, cacheKey);
+
+  // 和名/英名どちらでも受けられるよう正規化
+  const normalized = normalizeKeys(payload);
+
+  // ヘッダ順で値を並べる（存在しないキーは空に）
+  const row = headers.map((h) => normalized[h] ?? '');
+
+  try {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_NAME,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: [row] },
+    });
+  } catch (error) {
+    headerCache.delete(cacheKey);
+    sheetsClient = null;
+    throw error;
+  }
+}
+
+async function getSheetsClient(): Promise<sheets_v4.Sheets> {
+  if (sheetsClient) return sheetsClient;
+
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL || '';
   const privateKeyRaw = process.env.GOOGLE_PRIVATE_KEY || '';
 
-  if (!SHEET_ID || !clientEmail || !privateKeyRaw) {
-    throw new Error('SHEET_ID / GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY が未設定です。');
+  if (!clientEmail || !privateKeyRaw) {
+    throw new Error('GOOGLE_CLIENT_EMAIL / GOOGLE_PRIVATE_KEY が未設定です。');
   }
   const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
 
@@ -107,33 +137,34 @@ async function appendToSheet(payload: StringRecord): Promise<void> {
     key: privateKey,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
-  const sheets = google.sheets({ version: 'v4', auth });
 
-  // 1行目のヘッダを取得（その順番で値を並べる）
+  sheetsClient = google.sheets({ version: 'v4', auth });
+  return sheetsClient;
+}
+
+async function getSheetHeaders(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  sheetName: string,
+  cacheKey: string,
+): Promise<string[]> {
+  const cached = headerCache.get(cacheKey);
+  if (cached) return cached;
+
   const headerRes = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!1:1`,
+    spreadsheetId,
+    range: `${sheetName}!1:1`,
   });
+
   const headerRow = (headerRes.data.values && headerRes.data.values[0]) || [];
-  const headers: string[] = headerRow.map((h) => String(h));
+  const headers = headerRow.map((h) => String(h));
 
   if (headers.length === 0) {
-    throw new Error(`シート「${SHEET_NAME}」にヘッダー行がありません。`);
+    throw new Error(`シート「${sheetName}」にヘッダー行がありません。`);
   }
 
-  // 和名/英名どちらでも受けられるよう正規化
-  const normalized = normalizeKeys(payload);
-
-  // ヘッダ順で値を並べる（存在しないキーは空に）
-  const row = headers.map((h) => normalized[h] ?? '');
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID,
-    range: SHEET_NAME,
-    valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
-    requestBody: { values: [row] },
-  });
+  headerCache.set(cacheKey, headers);
+  return headers;
 }
 
 /** 和名・英名どちらでも受け取れるように -> シートの日本語ヘッダへマッピング */
@@ -162,21 +193,4 @@ function normalizeKeys(p: StringRecord): StringRecord {
     if (!(k in data)) data[k] = String(v ?? '');
   }
   return data;
-}
-
-/* -------------------- GAS recalc -------------------- */
-
-async function callRecalc(): Promise<void> {
-  const execUrl = process.env.GAS_EXEC_URL || '';
-  const token = process.env.RECALC_TOKEN || '';
-  if (!execUrl || !token) throw new Error('GAS_EXEC_URL / RECALC_TOKEN が未設定です。');
-
-  const url = new URL(execUrl);
-  url.search = new URLSearchParams({ token, action: 'recalc' }).toString();
-
-  const res = await fetch(url.toString(), { method: 'POST' });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`GAS recalc failed: ${res.status} ${t}`);
-  }
 }

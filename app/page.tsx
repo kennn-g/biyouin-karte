@@ -172,6 +172,7 @@ export default function Home() {
 
     setErrors({});
     setIsSubmitting(true);
+    setSubmitMessage('⏳ データ送信中です...');
 
     const formData = {
       gender,
@@ -193,12 +194,17 @@ export default function Home() {
         body: JSON.stringify(formData),
       });
 
-      const result = await response.json();
-
       if (response.ok) {
         setSubmitMessage('✅ データが正常に送信されました！');
       } else {
-        throw new Error(result.error || '送信に失敗しました。');
+        let errorMessage = '送信に失敗しました。';
+        try {
+          const result = await response.json();
+          errorMessage = result.error || errorMessage;
+        } catch (jsonError) {
+          console.error('Failed to parse error response:', jsonError);
+        }
+        throw new Error(errorMessage);
       }
     } catch (error) {
       if (error instanceof Error) {
@@ -219,7 +225,12 @@ export default function Home() {
           必須項目を入力し、確認のうえ「データを提出する」をタップしてください。
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-8 space-y-8" noValidate>
+        <form
+          onSubmit={handleSubmit}
+          className="mt-8 space-y-8"
+          noValidate
+          aria-busy={isSubmitting}
+        >
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-md">
             <h2 className="text-xl font-semibold text-slate-900">基本情報</h2>
             <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -506,9 +517,35 @@ export default function Home() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="inline-flex w-full items-center justify-center rounded-2xl bg-blue-500 px-8 py-4 text-lg font-semibold text-white shadow-lg transition hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="inline-flex w-full items-center justify-center gap-3 rounded-2xl bg-blue-500 px-8 py-4 text-lg font-semibold text-white shadow-lg transition hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
-              {isSubmitting ? '送信中...' : 'データを提出する'}
+              {isSubmitting ? (
+                <>
+                  <svg
+                    className="h-5 w-5 animate-spin text-white"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                    />
+                  </svg>
+                  <span>送信中...</span>
+                </>
+              ) : (
+                'データを提出する'
+              )}
             </button>
           </div>
 
