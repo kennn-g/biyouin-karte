@@ -112,7 +112,7 @@ export default function Home() {
     const validationErrors: ErrorState = {};
 
     if (!gender.trim()) {
-      validationErrors.gender = '顧客の性別を選択してください。';
+      validationErrors.gender = 'お客様の性別を選択してください。';
     }
 
     if (!practitioner.trim()) {
@@ -262,7 +262,7 @@ export default function Home() {
 
               <div>
                 <span id="gender-label" className="mb-2 block text-sm font-semibold text-slate-700">
-                  顧客の性別 <span className="text-rose-500">*</span>
+                  お客様の性別 <span className="text-rose-500">*</span>
                 </span>
                 <div
                   className="grid grid-cols-2 gap-3"
